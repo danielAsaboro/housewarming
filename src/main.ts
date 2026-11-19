@@ -67,7 +67,8 @@ async function main() {
   if (splat) scene.add(splat);
 
   let simView = !splat;
-  for (const v of await loadModels(base, manifest, layout)) view.attach(v.body, v.obj);
+  // models stream in and attach as they arrive; the room and robot don't wait for them
+  void loadModels(base, manifest, layout, (body, obj) => view.attach(body, obj));
   const A = mj.mjtObj.mjOBJ_ACTUATOR.value;
 
   // articulated objects: F toggles the nearest one within reach

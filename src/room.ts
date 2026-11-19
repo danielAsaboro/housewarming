@@ -131,9 +131,10 @@ export async function loadSplat(base: string, m: Manifest): Promise<Object3D | n
   return holder;
 }
 
-async function glb(url: string, cache: Map<string, ArrayBuffer>) {
-  if (!cache.has(url)) cache.set(url, await (await fetch(url)).arrayBuffer());
-  return (await GLTFLoader.loadGLTF(cache.get(url)!.slice(0), { textureLoader: (u: string) => downloadTexture(u) as any })).scene;
+async function glb(url: string, cache: Map<string, Promise<ArrayBuffer>>) {
+  if (!cache.has(url)) cache.set(url, fetch(url).then((r) => r.arrayBuffer()));
+  const buf = await cache.get(url)!;
+  return (await GLTFLoader.loadGLTF(buf.slice(0), { textureLoader: (u: string) => downloadTexture(u) as any })).scene;
 }
 
 /** model (glTF frame) → box frame: Y-up→Z-up, scale k, offset, then optional 90° swap about Z, then position. */
@@ -150,30 +151,27 @@ function gltfBounds(model: Object3D) {
   return { min: [bb.min.x, bb.min.y, bb.min.z], max: [bb.max.x, bb.max.y, bb.max.z] };
 }
 
-/** Visuals per MuJoCo body: plain Lux3D models fitted to their box; articulated models split per URDF link. */
-export async function loadModels(base: string, m: Manifest, layout: Layout) {
-  const cache = new Map<string, ArrayBuffer>();
-  const visuals: { body: string; obj: Object3D }[] = [];
-  for (const b of layout.boxes) {
+/** Visuals per MuJoCo body, loaded in parallel; `onVisual` fires as each one is ready. */
+export async function loadModels(base: string, m: Manifest, layout: Layout, onVisual: (body: string, obj: Object3D) => void) {
+  const cache = new Map<string, Promise<ArrayBuffer>>();
+  await Promise.all(layout.boxes.map(async (b) => {
     try {
+      const r = facing(b, layout);
       const art = m.articulated?.[b.cls];
       if (art?.joints?.length && art.links[art.root]) {
-        const f = fit(assembled(art), b, facing(b, layout)), c = f.c;
-        visuals.push({ body: b.id, obj: placed(await glb(base + art.links[art.root].file, cache), f.k, [0, 0, 0], f.r, [-c[0] * f.k, -c[1] * f.k, -c[2] * f.k]) });
-        let i = 0;
-        for (const j of art.joints) {
-          const l = art.links[j.child]; if (!l) continue;
-          visuals.push({ body: `${b.id}_part${i++}`, obj: placed(await glb(base + l.file, cache), f.k, toBox(j.origin, f), f.r) });
-        }
-        continue;
+        const f = fit(assembled(art), b, r), c = f.c;
+        const parts = art.joints.filter((j) => art.links[j.child]);
+        await Promise.all([
+          glb(base + art.links[art.root].file, cache).then((o) => onVisual(b.id, placed(o, f.k, [0, 0, 0], f.r, [-c[0] * f.k, -c[1] * f.k, -c[2] * f.k]))),
+          ...parts.map((j, i) => glb(base + art.links[j.child].file, cache).then((o) => onVisual(`${b.id}_part${i}`, placed(o, f.k, toBox(j.origin, f), f.r)))),
+        ]);
+        return;
       }
       const file = m.models?.[b.cls];
-      if (!file) continue;
+      if (!file) return;
       const model = await glb(base + file, cache);
-      const f = fit(gltfBounds(model), b, facing(b, layout)), c = f.c;
-      const outer = placed(model, f.k, [0, 0, 0], f.r, [-c[0] * f.k, -c[1] * f.k, -c[2] * f.k]);
-      visuals.push({ body: b.id, obj: outer });
+      const f = fit(gltfBounds(model), b, r), c = f.c;
+      onVisual(b.id, placed(model, f.k, [0, 0, 0], f.r, [-c[0] * f.k, -c[1] * f.k, -c[2] * f.k]));
     } catch (e) { console.warn('model', b.cls, e); }
-  }
-  return visuals;
+  }));
 }
