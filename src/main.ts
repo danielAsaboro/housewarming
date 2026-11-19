@@ -167,6 +167,8 @@ async function main() {
   const camTarget = [p0.pos[0], p0.pos[1], p0.pos[2]];
   const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
   let camDist = dist;
+  // scripted camera (tests and capture): (seconds) → { pos, look }
+  let camPath: ((t: number) => { pos: number[]; look: number[] }) | null = null;
   // ---- build reveal: room → walls → objects → Lux3D models → robot
   const REVEAL = { walls: 1.4, boxes: 2.8, models: 4.2, drop: 5.4 };
   const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
@@ -242,11 +244,12 @@ async function main() {
     d = camDist;
     camera.position.set(camTarget[0] + d * Math.cos(pt) * Math.cos(a), camTarget[1] + d * Math.cos(pt) * Math.sin(a), camTarget[2] + d * Math.sin(pt));
     camera.lookAt(new Vector3(camTarget[0], camTarget[1], camTarget[2]));
+    if (camPath) { const c = camPath(performance.now() / 1000); camera.position.set(c.pos[0], c.pos[1], c.pos[2]); camera.lookAt(new Vector3(c.look[0], c.look[1], c.look[2])); }
     viewer.render();
   };
   requestAnimationFrame(frame);
   document.body.classList.add('ready');
-  Object.assign(window, { __hw: { mj, model, data, robot, layout, viewer, view, manifest, objects, toggleNearest, sceneXml, cam: (o: number, p: number, d: number) => { orbit = o; pitch = p; dist = d; }, setView, debug: () => ({ occ: !!occ, camDist, camHeading, orbit, clear: rayClear(camTarget[0], camTarget[1], camHeading + orbit, layout) }) } });
+  Object.assign(window, { __hw: { mj, model, data, robot, layout, viewer, view, manifest, objects, toggleNearest, sceneXml, cam: (o: number, p: number, d: number) => { orbit = o; pitch = p; dist = d; }, setView, setCamPath: (fn: typeof camPath) => { camPath = fn; }, debug: () => ({ occ: !!occ, camDist, camHeading, orbit, clear: rayClear(camTarget[0], camTarget[1], camHeading + orbit, layout) }) } });
 }
 
 function hud(m: Awaited<ReturnType<typeof loadManifest>>['manifest'] & { timings?: Record<string, number>; counts?: Record<string, number> }, l: Layout, hasSplat: boolean, hasDoors: boolean) {

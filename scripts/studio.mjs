@@ -57,6 +57,14 @@ createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   try {
     if (url.pathname === '/api/studio') { res.writeHead(200, { 'Content-Type': 'application/json' }).end('{"studio":true}'); return; }
+    if (req.method === 'POST' && url.pathname === '/api/capture') {
+      // dev aid: save a browser recording (e.g. a test walk through a scan) into rooms-input/
+      const name = (url.searchParams.get('name') ?? 'capture').replace(/[^a-z0-9.-]+/gi, '-');
+      const file = path.join(INPUT, name);
+      await new Promise((ok, fail) => req.pipe(createWriteStream(file)).on('finish', ok).on('error', fail));
+      res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ file }));
+      return;
+    }
     if (req.method === 'POST' && url.pathname === '/api/build') {
       const name = (url.searchParams.get('name') ?? 'room').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 32) || 'room';
       const ext = path.extname(url.searchParams.get('file') ?? '').toLowerCase();
