@@ -5,6 +5,8 @@ import {
 import type { Box, Layout, Vec3 } from './layout/spatiallm';
 import type { Joint, ObjectAsset } from './layout/mjcf';
 import { quatFromMat } from './render/mjview';
+import { facing } from './layout/facing';
+export { facing };
 
 export interface UrdfJoint { name: string; type: 'hinge' | 'slide'; parent: string; child: string; origin: number[]; axis: number[]; lower: number; upper: number }
 export interface Articulated { root: string; links: Record<string, { file: string; bounds: { min: number[]; max: number[] } }>; joints: UrdfJoint[] }
@@ -27,32 +29,6 @@ export async function loadManifest(id: string): Promise<{ manifest: Manifest; ba
 
 /** glTF (Y-up) → MuJoCo/SpatialLM (Z-up): rotate +90° about X: (x, y, z) → (x, −z, y). */
 const yUpToZUp = (p: number[]): Vec3 => [p[0], -p[2], p[1]];
-
-/**
- * Which way a box's furniture faces, as quarter turns r (0..3) of the model about Z.
- * glTF front (+Z) lands on box −Y after the Y-up→Z-up turn; r rotates it to face away from the
- * nearest wall (furniture stands against walls) or toward the room's center when free-standing.
- */
-export function facing(b: Box, l: Layout): number {
-  let best = { d: Infinity, x: 0, y: 0 };
-  for (const w of l.walls) {
-    const ex = w.b[0] - w.a[0], ey = w.b[1] - w.a[1], L2 = ex * ex + ey * ey || 1;
-    const t = Math.max(0, Math.min(1, ((b.center[0] - w.a[0]) * ex + (b.center[1] - w.a[1]) * ey) / L2));
-    const px = w.a[0] + t * ex, py = w.a[1] + t * ey, d = Math.hypot(b.center[0] - px, b.center[1] - py);
-    if (d < best.d) best = { d, x: px, y: py };
-  }
-  let ox = b.center[0] - best.x, oy = b.center[1] - best.y;
-  if (!(best.d < 1.5)) {
-    let cx = 0, cy = 0; for (const w of l.walls) { cx += w.a[0] + w.b[0]; cy += w.a[1] + w.b[1]; }
-    ox = cx / (2 * l.walls.length || 1) - b.center[0]; oy = cy / (2 * l.walls.length || 1) - b.center[1];
-  }
-  const c = Math.cos(b.angleZ), s = Math.sin(b.angleZ);
-  const lx = ox * c + oy * s, ly = -ox * s + oy * c; // outward direction in the box frame
-  const dirs = [[0, -1], [1, 0], [0, 1], [-1, 0]]; // front direction after r quarter turns
-  let r = 0, bd = -Infinity;
-  dirs.forEach(([dx, dy], i) => { const v = dx * lx + dy * ly; if (v > bd) { bd = v; r = i; } });
-  return r;
-}
 
 /** Uniform fit of a model's bounds (glTF frame) into a box, turned r quarter turns: scale k, center c (Z-up, model units). */
 function fit(bounds: { min: number[]; max: number[] }, b: Box, r: number) {
