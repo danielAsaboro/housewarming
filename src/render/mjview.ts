@@ -1,7 +1,10 @@
 // Mirrors MuJoCo geoms into an Aholo Viewer scene and keeps their transforms in sync.
 import {
-  BufferAttribute, BufferGeometry, Mesh, MeshPhongMaterial, Object3D, Quaternion, Side,
+  BufferAttribute, BufferGeometry, LineMaterial, LineSegments, Mesh, MeshPhongMaterial, Object3D, Quaternion, Side,
 } from '@manycore/aholo-viewer';
+
+/** Blueprint palette (design.md) */
+export const BLUEPRINT = { ground: 0x1b3a8f, deep: 0x10245e, line: 0xe8eefc, fill: 0x3d63c9, act: 0xd9643a };
 
 type Mj = any;
 /** geom groups drawn: 0 = room (walls, floor, objects), 2 = Lite3 visual meshes. 1 and 3 are colliders. */
@@ -13,7 +16,12 @@ export class MjView {
   private attached: { body: number; obj: Object3D }[] = [];
   private q = new Quaternion();
 
-  constructor(private mj: Mj, private model: Mj, private data: Mj) {
+  /** room geoms (walls, floor, object boxes) — hidden when a real splat stands in for the room */
+  private roomItems: Mesh[] = [];
+  readonly models = new Object3D();
+
+  constructor(private mj: Mj, private model: Mj, private data: Mj, opts: { hideRoom?: boolean } = {}) {
+    this.root.add(this.models);
     const T = mj.mjtGeom;
     const m = model;
     for (let g = 0; g < m.ngeom; g++) {
@@ -28,23 +36,42 @@ export class MjView {
       if (!geo) continue;
       const rgba = colorOf(m, g);
       if (rgba[3] < 0.05) continue;
-      const mat = new MeshPhongMaterial({ color: hex(rgba), opacity: rgba[3], shininess: 20 });
+      const room = m.geom_group[g] === 0;
+      const isPlane = type === T.mjGEOM_PLANE.value;
+      const isPart = room && m.body_parentid[m.geom_bodyid[g]] !== 0;
+      const color = room ? (isPlane ? BLUEPRINT.ground : isPart ? BLUEPRINT.act : BLUEPRINT.fill) : hex(rgba);
+      const mat = new MeshPhongMaterial({ color, opacity: room ? (isPlane ? 1 : 0.35) : rgba[3], shininess: room ? 0 : 20 });
       mat.side = Side.DoubleSide;
+      if (room && !isPlane) mat.transparent = true;
       const mesh = new Mesh(geo, mat);
+      if (room && type === T.mjGEOM_BOX.value) mesh.add(boxEdges(size[0], size[1], size[2]));
+      if (isPlane) mesh.add(grid(12, 0.5));
       this.items.push({ geom: g, mesh });
+      if (m.geom_group[g] === 0) this.roomItems.push(mesh);
       this.root.add(mesh);
     }
     this.sync();
+    if (opts.hideRoom) this.setRoomVisible(false);
   }
+
+  setRoomVisible(on: boolean) {
+    for (const m of this.roomItems) if (!this.hidden.has(m)) m.visible = on;
+    this.models.visible = on;
+  }
+  private hidden = new Set<Mesh>();
 
   /** Replace a body's drawn geoms with `obj` (e.g. a Lux3D model) that follows the body's pose. */
   attach(bodyName: string, obj: Object3D) {
     const body = this.mj.mj_name2id(this.model, this.mj.mjtObj.mjOBJ_BODY.value, bodyName);
     if (body < 0) return false;
-    for (const it of this.items) if (this.model.geom_bodyid[it.geom] === body) it.mesh.visible = false;
+    // hide the box geoms of this body and of its articulated parts (bodies rooted at it)
+    for (const it of this.items) {
+      const gb = this.model.geom_bodyid[it.geom];
+      if (gb === body || this.model.body_parentid[gb] === body) { it.mesh.visible = false; this.hidden.add(it.mesh); }
+    }
     const holder = new Object3D();
     holder.add(obj);
-    this.root.add(holder);
+    this.models.add(holder);
     this.attached.push({ body, obj: holder });
     this.sync();
     return true;
@@ -114,6 +141,27 @@ function box(hx: number, hy: number, hz: number) {
     ...quad(v(-1, -1, 1), v(1, -1, 1), v(1, 1, 1), v(-1, 1, 1)),
     ...quad(v(-1, 1, -1), v(1, 1, -1), v(1, -1, -1), v(-1, -1, -1)),
   ]);
+}
+
+function lines(pts: number[], opacity = 0.85) {
+  const g = new BufferGeometry() as any;
+  g.setAttribute('position', new BufferAttribute(Float32Array.from(pts), 3));
+  const mat = new LineMaterial({ color: BLUEPRINT.line, opacity } as any);
+  if (opacity < 1) (mat as any).transparent = true;
+  return new LineSegments(g, mat);
+}
+function boxEdges(hx: number, hy: number, hz: number) {
+  const c = (x: number, y: number, z: number) => [x * hx, y * hy, z * hz];
+  const e: number[] = [];
+  for (const y of [-1, 1]) for (const z of [-1, 1]) e.push(...c(-1, y, z), ...c(1, y, z));
+  for (const x of [-1, 1]) for (const z of [-1, 1]) e.push(...c(x, -1, z), ...c(x, 1, z));
+  for (const x of [-1, 1]) for (const y of [-1, 1]) e.push(...c(x, y, -1), ...c(x, y, 1));
+  return lines(e);
+}
+function grid(half: number, step: number) {
+  const e: number[] = [];
+  for (let v = -half; v <= half + 1e-6; v += step) e.push(v, -half, 0.002, v, half, 0.002, -half, v, 0.002, half, v, 0.002);
+  return lines(e, 0.18);
 }
 
 function sphere(r: number, seg = 12) {

@@ -1,0 +1,7 @@
+{
+  "id": "sample",
+  "source": "hand-written layout in the Spatial Understanding format",
+  "layout": "layout.txt",
+  "models": { "dining chair": "models/dining-chair.glb", "chair": "models/dining-chair.glb" },
+  "articulated": {}
+}

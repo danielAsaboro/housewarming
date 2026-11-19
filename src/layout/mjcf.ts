@@ -72,6 +72,13 @@ export function buildScene(layout: Layout, opts: SceneOptions = {}): string {
 
   for (const b of layout.boxes) L.push(...objectBody(b, opts.objects?.[b.id]));
   L.push('  </worldbody>');
+  // soft position servos so doors/drawers can be opened on command and still be pushed by the robot
+  const acts: string[] = [];
+  for (const b of layout.boxes) for (const [i] of (opts.objects?.[b.id]?.joints ?? []).entries()) {
+    const j = `${esc(b.id)}_j${i}`;
+    acts.push(`    <position name="${j}_act" joint="${j}" kp="6" kv="1.5" ctrlrange="-10 10"/>`);
+  }
+  if (acts.length) L.push('  <actuator>', ...acts, '  </actuator>');
   L.push('</mujoco>');
   return L.join('\n');
 }

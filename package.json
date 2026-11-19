@@ -18,6 +18,7 @@
     "@manycore/aholo-sdk-world": "^1.5.0",
     "@manycore/aholo-viewer": "1.14.0",
     "@mujoco/mujoco": "4.0.1",
+    "fflate": "^0.8.3",
     "onnxruntime-web": "^1.31.1"
   },
   "devDependencies": {

@@ -1,20 +1,21 @@
 import loadMujoco from '@mujoco/mujoco';
 import * as ort from 'onnxruntime-web/wasm';
 import {
-  Box3, GLTFLoader, downloadTexture, Object3D as Obj3D,
   AmbientLight, BackgroundMode, Color, DirectionalLight, PerspectiveCamera, Vector3, createViewer, setViewerConfig,
 } from '@manycore/aholo-viewer';
-import { parseLayout } from './layout/spatiallm';
+import { parseLayout, type Layout } from './layout/spatiallm';
 import { buildScene } from './layout/mjcf';
 import { Lite3Controller } from './robot/lite3';
 import { MjView } from './render/mjview';
+import { articulationAssets, loadManifest, loadModels, loadSplat, poseAnimated, type Animated } from './room';
+import { exportMjcf } from './export';
 
 const ROBOT_FILES = ['lite3.xml', 'meshes/hip.STL', 'meshes/shank.STL', 'meshes/thigh.STL', 'meshes/torso.STL'];
 
-async function layoutText(): Promise<string> {
-  const url = new URLSearchParams(location.search).get('layout');
-  if (url) return (await fetch(url)).text();
-  return (await fetch('/rooms/sample-room.txt')).text();
+async function roomId() {
+  const q = new URLSearchParams(location.search).get('room');
+  if (q) return q;
+  try { return ((await (await fetch('/rooms/index.json')).json()).rooms as string[])[0]; } catch { return 'sample'; }
 }
 
 async function main() {
@@ -22,17 +23,21 @@ async function main() {
   ort.env.wasm.wasmPaths = { wasm: '/ort/ort-wasm-simd-threaded.wasm' };
   ort.env.wasm.numThreads = 1;
 
-  const [mj, session, layoutSrc, robotFiles] = await Promise.all([
+  const id = await roomId();
+  const [mj, session, room, robotFiles] = await Promise.all([
     loadMujoco(),
     ort.InferenceSession.create('/policy/lite3/policy.onnx'),
-    layoutText(),
+    loadManifest(id),
     Promise.all(ROBOT_FILES.map(async (f) => [f, new Uint8Array(await (await fetch(`/robots/lite3/${f}`)).arrayBuffer())] as const)),
   ]);
+  const { manifest, base, layoutText } = room;
+  const layout = parseLayout(layoutText);
+  const objects = articulationAssets(layout, manifest);
+  const sceneXml = buildScene(layout, { robotInclude: 'lite3.xml', objects });
 
   mj.FS.mkdirTree('/work/meshes', 0o777);
   for (const [f, bytes] of robotFiles) mj.FS.writeFile(`/work/${f}`, bytes);
-  const layout = parseLayout(layoutSrc);
-  mj.FS.writeFile('/work/scene.xml', buildScene(layout, { robotInclude: 'lite3.xml' }));
+  mj.FS.writeFile('/work/scene.xml', sceneXml);
   const model = mj.MjModel.from_xml_path('/work/scene.xml');
   const data = new mj.MjData(model);
   const robot = new Lite3Controller(mj, model, data, session, ort);
@@ -45,7 +50,8 @@ async function main() {
   viewer.setCamera(camera);
   setViewerConfig(viewer, {
     pipeline: {
-      Background: { background: { active: BackgroundMode.BasicBackground, basic: { color: new Color(0.953, 0.937, 0.91) } }, ground: { enabled: false } },
+      Background: { background: { active: BackgroundMode.BasicBackground, basic: { color: new Color(0.063, 0.141, 0.369) } }, ground: { enabled: false } },
+      Splatting: { enabled: true },
       TAA: { enabled: true },
     },
   });
@@ -54,12 +60,43 @@ async function main() {
   const sun = new DirectionalLight(0xffffff, 0.9);
   sun.position.set(-2, -3, 6);
   scene.add(sun);
-  const view = new MjView(mj, model, data);
+
+  const splat = await loadSplat(base, manifest).catch((e) => { console.warn('splat', e); return null; });
+  const view = new MjView(mj, model, data, { hideRoom: !!splat });
   scene.add(view.root);
-  await placeModels(view, layout);
+  if (splat) scene.add(splat);
+
+  let simView = !splat;
+  const animated: Animated[] = [];
+  for (const v of await loadModels(base, manifest, layout)) {
+    view.attach(v.box.id, v.obj);
+    if (v.animated) animated.push(v.animated);
+  }
+  const J = mj.mjtObj.mjOBJ_JOINT.value, A = mj.mjtObj.mjOBJ_ACTUATOR.value;
+  const qposOf = (name: string) => { const j = mj.mj_name2id(model, J, name); return j < 0 ? 0 : data.qpos[model.jnt_qposadr[j]]; };
+
+  // articulated objects: F toggles the nearest one within reach
+  const doors = layout.boxes.filter((b) => objects[b.id]?.joints?.length).map((b) => ({ b, open: false }));
+  const toggleNearest = () => {
+    const { pos } = robot.pose();
+    let best: (typeof doors)[number] | undefined, bd = 2.0;
+    for (const d of doors) { const dd = Math.hypot(d.b.center[0] - pos[0], d.b.center[1] - pos[1]); if (dd < bd) { bd = dd; best = d; } }
+    if (!best) return;
+    best.open = !best.open;
+    objects[best.b.id].joints!.forEach((jt, i) => {
+      const a = mj.mj_name2id(model, A, `${best!.b.id}_j${i}_act`);
+      if (a >= 0) data.ctrl[a] = best!.open ? jt.range[1] * 0.95 : 0;
+    });
+  };
 
   const keys = new Set<string>();
-  stage.addEventListener('keydown', (e) => keys.add(e.key.toLowerCase()));
+  stage.addEventListener('keydown', (e) => {
+    const k = e.key.toLowerCase();
+    if (k === 'f' && !keys.has('f')) toggleNearest();
+    if (k === 'm' && !keys.has('m')) exportMjcf(id, sceneXml, robotFiles);
+    if (k === 'v' && !keys.has('v') && splat) { simView = !simView; splat.visible = !simView; view.setRoomVisible(simView); }
+    keys.add(k);
+  });
   stage.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
   stage.focus();
 
@@ -72,7 +109,7 @@ async function main() {
     orbit -= (e.clientX - lastX) * 0.006; pitch = Math.min(1.3, Math.max(0.05, pitch + (e.clientY - lastY) * 0.005));
     lastX = e.clientX; lastY = e.clientY;
   });
-  stage.addEventListener('wheel', (e) => { dist = Math.min(8, Math.max(0.8, dist * Math.exp(e.deltaY * 0.001))); e.preventDefault(); }, { passive: false });
+  stage.addEventListener('wheel', (e) => { dist = Math.min(10, Math.max(0.8, dist * Math.exp(e.deltaY * 0.001))); e.preventDefault(); }, { passive: false });
   addEventListener('resize', () => { viewer.resize(); camera.aspect = stage.clientWidth / stage.clientHeight; camera.updateProjectionMatrix(); });
 
   // Physics runs on its own timer at wall-clock rate (≈19x headroom); rendering draws whatever state is current.
@@ -80,11 +117,7 @@ async function main() {
   let simClock = performance.now();
   const physics = async () => {
     const ax = (k: string, k2: string) => (keys.has(k) || keys.has(k2) ? 1 : 0);
-    robot.cmd = [
-      ax('w', 'arrowup') - ax('s', 'arrowdown'),
-      ax('q', 'q') - ax('e', 'e'),
-      ax('a', 'arrowleft') - ax('d', 'arrowright'),
-    ];
+    robot.cmd = [ax('w', 'arrowup') - ax('s', 'arrowdown'), ax('q', 'q') - ax('e', 'e'), ax('a', 'arrowleft') - ax('d', 'arrowright')];
     if (keys.has('r')) robot.spawn(spawn[0], spawn[1], spawn[2]);
     const now = performance.now();
     simClock = Math.max(simClock, now - 100); // never owe more than 100 ms
@@ -96,6 +129,7 @@ async function main() {
   const frame = () => {
     requestAnimationFrame(frame);
     view.sync();
+    for (const a of animated) poseAnimated(a, qposOf);
     const { pos, quat } = robot.pose();
     const heading = 2 * Math.atan2(quat[3], quat[0]);
     const a = heading + orbit;
@@ -104,37 +138,11 @@ async function main() {
     viewer.render();
   };
   requestAnimationFrame(frame);
-  Object.assign(window, { __hw: { mj, model, data, robot, layout, viewer, view } });
+  Object.assign(window, { __hw: { mj, model, data, robot, layout, viewer, view, manifest, objects, toggleNearest, sceneXml } });
 }
 
-/** Lux3D models (generated in Aholo3D) drawn on the matching detected objects, scaled to each box. */
-const MODELS: Record<string, string> = { 'dining chair': '/models/lux3d-dining-chair.glb', chair: '/models/lux3d-dining-chair.glb' };
-async function placeModels(view: MjView, l: ReturnType<typeof parseLayout>) {
-  const cache = new Map<string, ArrayBuffer>();
-  for (const b of l.boxes) {
-    const url = MODELS[b.cls];
-    if (!url) continue;
-    try {
-      if (!cache.has(url)) cache.set(url, await (await fetch(url)).arrayBuffer());
-      const res = await GLTFLoader.loadGLTF(cache.get(url)!.slice(0), { textureLoader: (u: string) => downloadTexture(u) as any });
-      const model = res.scene;
-      // glTF is Y-up; MuJoCo is Z-up
-      model.rotation.x = Math.PI / 2;
-      const wrap = new Obj3D(); wrap.add(model);
-      wrap.updateMatrix?.();
-      const box = new Box3().setFromObject(wrap);
-      const size = box.getSize(); const c = box.getCenter(new (box.min.constructor as any)());
-      const k = Math.min(b.size[0] / (size.x || 1), b.size[1] / (size.y || 1), b.size[2] / (size.z || 1));
-      wrap.scale.set(k, k, k);
-      const outer = new Obj3D(); outer.add(wrap);
-      wrap.position.set(-c.x * k, -c.y * k, -c.z * k);
-      view.attach(b.id, outer);
-    } catch (e) { console.warn('model', b.id, e); }
-  }
-}
-
-/** A free spot: room centroid, facing the longest open direction. */
-function spawnPoint(l: ReturnType<typeof parseLayout>): [number, number, number] {
+/** A free spot near the room's center. */
+function spawnPoint(l: Layout): [number, number, number] {
   if (!l.walls.length) return [0, 0, 0];
   let x = 0, y = 0;
   for (const w of l.walls) { x += w.a[0] + w.b[0]; y += w.a[1] + w.b[1]; }
