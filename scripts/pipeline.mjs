@@ -48,8 +48,12 @@ async function step(name, fn) {
   log('✓', name, `${state[`${name}_s`]}s`); return state[name];
 }
 async function download(url, file) {
-  const res = await fetch(url); if (!res.ok) throw new Error(`download ${res.status}`);
-  const buf = Buffer.from(await res.arrayBuffer()); await writeFile(path.join(DIR, file), buf); return buf;
+  for (let i = 0; ; i++) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(180_000) }); if (!res.ok) throw new Error(`download ${res.status}`);
+      const buf = Buffer.from(await res.arrayBuffer()); await writeFile(path.join(DIR, file), buf); return buf;
+    } catch (e) { if (i >= 3) throw e; log('retry download', file, e.message); }
+  }
 }
 async function rest(method, p, body) {
   const res = await fetch(`${BASE}${p}`, { method, headers: { Authorization: KEY, 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) });
@@ -217,8 +221,14 @@ const run = (n) => !only || only.includes(n);
 if (run('world')) await worldStep();
 if (run('align')) await alignStep();
 if (run('layout')) await layoutStep();
-let objects = { models: {}, articulated: {} };
-if (run('objects')) objects = await objectsStep();
+if (run('objects')) await objectsStep();
+// the manifest is rebuilt from saved state, so a partial or repeated run still lists everything finished so far
+const objects = { models: {}, articulated: {} };
+for (const [k, v] of Object.entries(state)) {
+  let m;
+  if ((m = k.match(/^gen_(.+)_file$/))) objects.models[m[1]] = v.file;
+  if ((m = k.match(/^art_(.+)_urdf$/))) objects.articulated[m[1]] = v;
+}
 const manifest = {
   id: args.id,
   source: args.video ? 'video' : args.insv ? 'insv' : args.image ? 'image' : 'prompt',

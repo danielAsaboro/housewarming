@@ -3,6 +3,7 @@
   "source": "prompt",
   "splat": "scene.spz",
   "splatFormat": "spz",
+  "pano": "pano.jpg",
   "T": [
     [
       0.017452406437283376,
@@ -38,6 +39,26 @@
     "metric": true
   },
   "layout": "layout.txt",
-  "models": {},
-  "articulated": {}
+  "models": {
+    "shoe cabinet": "models/shoe-cabinet.glb",
+    "refrigerator": "models/refrigerator.glb",
+    "dining table": "models/dining-table.glb",
+    "dining chair": "models/dining-chair.glb",
+    "coffee table": "models/coffee-table.glb"
+  },
+  "articulated": {},
+  "worldId": "3FO4K4V985GX",
+  "thumb": "thumb.jpg",
+  "timings": {
+    "world": 716,
+    "layout": 74,
+    "objects": 39,
+    "joints": 0
+  },
+  "counts": {
+    "walls": 26,
+    "doors": 8,
+    "windows": 2,
+    "objects": 13
+  }
 }

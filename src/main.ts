@@ -100,6 +100,7 @@ async function main() {
     if (k === 'f' && !keys.has('f')) toggleNearest();
     if (k === 'm' && !keys.has('m')) exportMjcf(id, sceneXml, robotFiles);
     if (k === 'v' && !keys.has('v')) setView(!simView);
+    if (k === 'r' && !keys.has('r') && !revealing) reveal();
     keys.add(k);
   });
   stage.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
@@ -120,10 +121,11 @@ async function main() {
   // Physics runs on its own timer at wall-clock rate (≈19x headroom); rendering draws whatever state is current.
   const timestep = model.opt.timestep;
   let simClock = performance.now();
+  let paused = true;
   const physics = async () => {
+    if (paused) { simClock = performance.now(); setTimeout(physics, 16); return; }
     const ax = (k: string, k2: string) => (keys.has(k) || keys.has(k2) ? 1 : 0);
     robot.cmd = [ax('w', 'arrowup') - ax('s', 'arrowdown'), ax('q', 'q') - ax('e', 'e'), ax('a', 'arrowleft') - ax('d', 'arrowright')];
-    if (keys.has('r')) robot.spawn(spawn[0], spawn[1], 0, spawn[2]);
     const now = performance.now();
     simClock = Math.max(simClock, now - 100); // never owe more than 100 ms
     while (simClock < now) { await robot.step(); simClock += timestep * 1000; }
@@ -135,6 +137,46 @@ async function main() {
   let camHeading = 2 * Math.atan2(p0.quat[3], p0.quat[0]);
   const camTarget = [p0.pos[0], p0.pos[1], p0.pos[2]];
   const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+  // ---- build reveal: room → walls → objects → Lux3D models → robot
+  const REVEAL = { walls: 1.4, boxes: 2.8, models: 4.2, drop: 5.4 };
+  const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
+  const smooth = (k: number) => k * k * (3 - 2 * k);
+  const roomCenter = [spawn[0], spawn[1]];
+  let revealing = false, revealT0 = 0, phase = -1;
+  // open the reveal from the direction with the most free floor, so the camera never starts inside a wall
+  const clearance = (ang: number) => {
+    const dx = Math.cos(ang), dy = Math.sin(ang); let best = 8;
+    for (const w of layout.walls) {
+      const ex = w.b[0] - w.a[0], ey = w.b[1] - w.a[1], den = dx * ey - dy * ex;
+      if (Math.abs(den) < 1e-9) continue;
+      const qx = w.a[0] - spawn[0], qy = w.a[1] - spawn[1];
+      const t = (qx * ey - qy * ex) / den, u = (qx * dy - qy * dx) / den;
+      if (t > 0 && u >= 0 && u <= 1) best = Math.min(best, t);
+    }
+    return best;
+  };
+  let revealAngle = 0, revealDist = 3.6;
+  for (let i = 0; i < 36; i++) { const ang = (i / 36) * Math.PI * 2, c = clearance(ang); if (c > clearance(revealAngle)) revealAngle = ang; }
+  revealDist = Math.max(1.6, Math.min(3.6, (clearance(revealAngle) - 0.4) / Math.cos(0.42)));
+  revealAngle += 0.24; // the slow orbit sweeps back across the open direction
+  const step = (t: number) => {
+    const s = t < REVEAL.walls ? 0 : t < REVEAL.boxes ? 1 : t < REVEAL.models ? 2 : t < REVEAL.drop ? 3 : 4;
+    if (s === phase) return;
+    phase = s;
+    view.revealBoxes = s === 2;
+    if (s === 0) { view.show({ walls: !splat, boxes: false, models: false }); view.models.visible = false; view.showRobot(false); paused = true; }
+    if (s === 1) view.show({ walls: true });
+    if (s === 2) view.show({ boxes: true });
+    if (s === 3) view.show({ boxes: false, models: true });
+    if (s === 4) {
+      if (splat) setView(false); else view.show({ walls: true, models: true });
+      robot.spawn(spawn[0], spawn[1], 0, spawn[2] + 0.12);
+      view.showRobot(true); paused = false;
+    }
+  };
+  const reveal = () => { revealing = true; revealT0 = performance.now(); phase = -1; };
+  reveal();
+
   const frame = () => {
     requestAnimationFrame(frame);
     view.sync();
@@ -144,8 +186,19 @@ async function main() {
     camHeading += wrap(heading - camHeading) * 0.06;
     for (let i = 0; i < 3; i++) camTarget[i] += (pos[i] - camTarget[i]) * 0.12;
     camTarget[2] = camTarget[2] * 0.9 + (pos[2] + 0.05) * 0.1;
-    const a = camHeading + orbit;
-    camera.position.set(camTarget[0] + dist * Math.cos(pitch) * Math.cos(a), camTarget[1] + dist * Math.cos(pitch) * Math.sin(a), camTarget[2] + dist * Math.sin(pitch));
+    // build reveal: high orbit over the room, then ease down behind the robot
+    let d = dist, pt = pitch, a = camHeading + orbit;
+    if (revealing) {
+      const t = (performance.now() - revealT0) / 1000;
+      step(t);
+      const k = smooth(Math.min(1, Math.max(0, (t - REVEAL.drop) / 1.6)));
+      // stay under the ceiling: generated and scanned rooms keep theirs
+      d = lerp(revealDist, dist, k); pt = lerp(0.42, pitch, k);
+      a = lerp(revealAngle - t * 0.08, camHeading + orbit, k);
+      for (let i = 0; i < 2; i++) camTarget[i] = lerp(roomCenter[i], robot.pose().pos[i], k);
+      if (t > REVEAL.drop + 1.7) revealing = false;
+    }
+    camera.position.set(camTarget[0] + d * Math.cos(pt) * Math.cos(a), camTarget[1] + d * Math.cos(pt) * Math.sin(a), camTarget[2] + d * Math.sin(pt));
     camera.lookAt(new Vector3(camTarget[0], camTarget[1], camTarget[2]));
     viewer.render();
   };

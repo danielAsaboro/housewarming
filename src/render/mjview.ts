@@ -40,24 +40,38 @@ export class MjView {
       const isPlane = type === T.mjGEOM_PLANE.value;
       const isPart = room && m.body_parentid[m.geom_bodyid[g]] !== 0;
       const color = room ? (isPlane ? BLUEPRINT.ground : isPart ? BLUEPRINT.act : BLUEPRINT.fill) : hex(rgba);
-      const mat = new MeshPhongMaterial({ color, opacity: room ? (isPlane ? 1 : 0.35) : rgba[3], shininess: room ? 0 : 20 });
+      const mat = new MeshPhongMaterial({ color, opacity: room ? (isPlane ? 1 : 0.22) : rgba[3], shininess: room ? 0 : 20 });
       mat.side = Side.DoubleSide;
       if (room && !isPlane) mat.transparent = true;
       const mesh = new Mesh(geo, mat);
       if (room && type === T.mjGEOM_BOX.value) mesh.add(boxEdges(size[0], size[1], size[2]));
       if (isPlane) mesh.add(grid(12, 0.5));
       this.items.push({ geom: g, mesh });
-      if (m.geom_group[g] === 0) this.roomItems.push(mesh);
+      if (m.geom_group[g] === 0) { this.roomItems.push(mesh); if (m.geom_bodyid[g] === 0) this.wallItems.add(mesh); }
       this.root.add(mesh);
     }
     this.sync();
     if (opts.hideRoom) this.setRoomVisible(false);
   }
 
-  setRoomVisible(on: boolean) {
-    for (const m of this.roomItems) if (!this.hidden.has(m)) m.visible = on;
-    this.models.visible = on;
+  setRoomVisible(on: boolean) { this.show({ walls: on, boxes: on, models: on }); }
+
+  showRobot(on: boolean) { for (const it of this.items) if (this.model.geom_group[it.geom] === 2) it.mesh.visible = on; }
+
+  /** Fine-grained visibility for the build reveal: walls+floor, object boxes, Lux3D models. */
+  show(v: { walls?: boolean; boxes?: boolean; models?: boolean }) {
+    for (const m of this.roomItems) {
+      if (this.hidden.has(m) && !(v.boxes && this.revealBoxes)) { if (v.models === false || v.boxes === false) m.visible = false; continue; }
+      const isWall = this.wallItems.has(m);
+      if (isWall && v.walls !== undefined) m.visible = v.walls;
+      if (!isWall && v.boxes !== undefined) m.visible = v.boxes;
+    }
+    if (v.models !== undefined) { this.models.visible = true; for (const a of this.attached) a.obj.visible = v.models || this.interactive.has(a.obj); }
   }
+  private wallItems = new Set<Mesh>();
+  private interactive = new Set<Object3D>();
+  /** during the reveal, boxes of modelled objects show briefly before their models replace them */
+  revealBoxes = false;
   private hidden = new Set<Mesh>();
 
   /** Replace a body's drawn geoms with `obj` (e.g. a Lux3D model) that follows the body's pose. */
@@ -73,6 +87,12 @@ export class MjView {
     holder.add(obj);
     this.models.add(holder);
     this.attached.push({ body, obj: holder });
+    // interactive = moves in the sim: has its own joint, or is a part of an articulated object
+    const m = this.model;
+    const moves = m.body_jntnum[body] > 0 || (m.body_parentid[body] !== 0 && m.body_jntnum[m.body_parentid[body]] === 0 && m.body_jntnum[body] > 0);
+    let hasMovingChild = false;
+    for (let b = 0; b < m.nbody; b++) if (m.body_parentid[b] === body && m.body_jntnum[b] > 0) hasMovingChild = true;
+    if (moves || hasMovingChild) this.interactive.add(holder);
     this.sync();
     return true;
   }
