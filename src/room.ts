@@ -63,11 +63,13 @@ function fit(bounds: { min: number[]; max: number[] }, b: Box, r: number) {
   const odd = r % 2 === 1;
   const sx = odd ? size[1] : size[0], sy = odd ? size[0] : size[1];
   const k = Math.min(b.size[0] / (sx || 1), b.size[1] / (sy || 1), b.size[2] / (size[2] || 1));
-  return { k, c: [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2] as Vec3, r };
+  // stand on the floor: when the model ends up shorter than its box, drop it to the box bottom
+  const dz = -b.size[2] / 2 + (size[2] * k) / 2;
+  return { k, c: [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2] as Vec3, r, dz };
 }
 type Fit = ReturnType<typeof fit>;
 const turn = (v: Vec3, r: number): Vec3 => { let [x, y] = v; for (let i = 0; i < r; i++) [x, y] = [-y, x]; return [x, y, v[2]]; };
-const toBox = (p: number[], f: Fit): Vec3 => { const q = yUpToZUp(p); return turn([(q[0] - f.c[0]) * f.k, (q[1] - f.c[1]) * f.k, (q[2] - f.c[2]) * f.k], f.r); };
+const toBox = (p: number[], f: Fit): Vec3 => { const q = yUpToZUp(p); return turn([(q[0] - f.c[0]) * f.k, (q[1] - f.c[1]) * f.k, (q[2] - f.c[2]) * f.k + f.dz], f.r); };
 const dirToBox = (d: number[], f: Fit): Vec3 => turn(yUpToZUp(d), f.r);
 
 /** Assembled bounds of an articulated model (root + children at their joint origins), glTF frame. */
@@ -162,7 +164,7 @@ export async function loadModels(base: string, m: Manifest, layout: Layout, onVi
         const f = fit(assembled(art), b, r), c = f.c;
         const parts = art.joints.filter((j) => art.links[j.child]);
         await Promise.all([
-          glb(base + art.links[art.root].file, cache).then((o) => onVisual(b.id, placed(o, f.k, [0, 0, 0], f.r, [-c[0] * f.k, -c[1] * f.k, -c[2] * f.k]))),
+          glb(base + art.links[art.root].file, cache).then((o) => onVisual(b.id, placed(o, f.k, [0, 0, 0], f.r, [-c[0] * f.k, -c[1] * f.k, -c[2] * f.k + f.dz]))),
           ...parts.map((j, i) => glb(base + art.links[j.child].file, cache).then((o) => onVisual(`${b.id}_part${i}`, placed(o, f.k, toBox(j.origin, f), f.r)))),
         ]);
         return;
@@ -171,7 +173,7 @@ export async function loadModels(base: string, m: Manifest, layout: Layout, onVi
       if (!file) return;
       const model = await glb(base + file, cache);
       const f = fit(gltfBounds(model), b, r), c = f.c;
-      onVisual(b.id, placed(model, f.k, [0, 0, 0], f.r, [-c[0] * f.k, -c[1] * f.k, -c[2] * f.k]));
+      onVisual(b.id, placed(model, f.k, [0, 0, 0], f.r, [-c[0] * f.k, -c[1] * f.k, -c[2] * f.k + f.dz]));
     } catch (e) { console.warn('model', b.cls, e); }
   }));
 }
