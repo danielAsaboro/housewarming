@@ -1,0 +1,8 @@
+node_modules
+dist
+.env
+*.log
+spike-out/
+hackathon
+.DS_Store
+public/ort/

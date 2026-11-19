@@ -1,0 +1,28 @@
+{
+  "name": "housewarming",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "spike": "node --env-file=.env scripts/spike.mjs",
+    "predev": "node scripts/copy-wasm.mjs",
+    "prebuild": "node scripts/copy-wasm.mjs"
+  },
+  "dependencies": {
+    "@manycore/aholo-sdk-asset": "^1.4.0",
+    "@manycore/aholo-sdk-lux3d": "^1.10.0",
+    "@manycore/aholo-sdk-world": "^1.5.0",
+    "@manycore/aholo-viewer": "1.14.0",
+    "@mujoco/mujoco": "4.0.1",
+    "onnxruntime-web": "^1.31.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vite": "^7.3.8",
+    "vitest": "^3.2.7"
+  }
+}
