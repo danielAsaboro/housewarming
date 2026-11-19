@@ -9,6 +9,7 @@ import { Lite3Controller } from './robot/lite3';
 import { MjView } from './render/mjview';
 import { articulationAssets, loadManifest, loadModels, loadSplat } from './room';
 import { exportMjcf } from './export';
+import { setupRooms } from './studio';
 
 const ROBOT_FILES = ['lite3.xml', 'meshes/hip.STL', 'meshes/shank.STL', 'meshes/thigh.STL', 'meshes/torso.STL'];
 
@@ -24,6 +25,7 @@ async function main() {
   ort.env.wasm.numThreads = 1;
 
   const id = await roomId();
+  void setupRooms(id);
   const [mj, session, room, robotFiles] = await Promise.all([
     loadMujoco(),
     ort.InferenceSession.create('/policy/lite3/policy.onnx'),
@@ -229,7 +231,6 @@ async function main() {
 }
 
 function hud(m: Awaited<ReturnType<typeof loadManifest>>['manifest'] & { timings?: Record<string, number>; counts?: Record<string, number> }, l: Layout, hasSplat: boolean, hasDoors: boolean) {
-  document.getElementById('room-name')!.textContent = m.id;
   (document.getElementById('viewseg') as HTMLElement).hidden = !hasSplat;
   (document.getElementById('open') as HTMLButtonElement).disabled = true;
   (document.getElementById('open') as HTMLButtonElement).hidden = !hasDoors;

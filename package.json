@@ -10,7 +10,8 @@
     "test": "vitest run",
     "spike": "node --env-file=.env scripts/spike.mjs",
     "predev": "node scripts/copy-wasm.mjs",
-    "prebuild": "node scripts/copy-wasm.mjs"
+    "prebuild": "node scripts/copy-wasm.mjs",
+    "studio": "node scripts/studio.mjs"
   },
   "dependencies": {
     "@manycore/aholo-sdk-asset": "^1.4.0",

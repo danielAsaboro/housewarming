@@ -19,7 +19,22 @@
 
       #mark { top: 20px; left: 24px; display: flex; align-items: baseline; gap: 12px; }
       #mark b { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
-      #mark span { font: 500 12px 'JetBrains Mono', monospace; color: var(--line-dim); text-transform: lowercase; }
+      #mark .link { font: 500 12px 'JetBrains Mono', monospace; color: var(--line-dim); padding: 2px 6px; border-radius: 6px; }
+      #mark .link:hover { color: var(--line); background: rgba(232, 238, 252, 0.1); }
+      #rooms { position: absolute; top: 30px; left: 0; min-width: 200px; display: grid; padding: 6px; border: 1px solid var(--line-dim); border-radius: 12px; background: rgba(16, 36, 94, 0.92); backdrop-filter: blur(10px); }
+      #rooms a, #rooms button { text-align: left; font: 500 13px 'JetBrains Mono', monospace; color: var(--line); text-decoration: none; padding: 8px 10px; border-radius: 8px; }
+      #rooms a:hover, #rooms button:hover { background: rgba(232, 238, 252, 0.12); }
+      #rooms a[aria-current] { color: var(--act); }
+      #rooms .new { color: var(--act); border-top: 1px solid var(--line-dim); border-radius: 0 0 8px 8px; margin-top: 4px; }
+      #building { inset: 0; display: grid; place-content: center; gap: 22px; background: rgba(16, 36, 94, 0.94); backdrop-filter: blur(6px); text-align: center; }
+      #building b { font-size: 26px; letter-spacing: -0.02em; }
+      #b-stages { list-style: none; margin: 0; padding: 0; display: flex; gap: 0; border: 1px solid var(--line-dim); border-radius: 12px; overflow: hidden; }
+      #b-stages li { padding: 14px 20px; border-right: 1px solid var(--line-dim); font-weight: 600; font-size: 13px; color: var(--line-dim); min-width: 92px; display: grid; gap: 4px; }
+      #b-stages li:last-child { border-right: 0; }
+      #b-stages li span { font: 500 12px 'JetBrains Mono', monospace; }
+      #b-stages li.on { color: var(--line); background: rgba(217, 100, 58, 0.18); }
+      #b-stages li.done { color: var(--line); }
+      #b-line { font: 500 11px 'JetBrains Mono', monospace; font-style: normal; color: var(--line-dim); max-width: 640px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
       #build { top: 20px; right: 24px; display: flex; gap: 0; border: 1px solid var(--line-dim); border-radius: 10px; overflow: hidden; backdrop-filter: blur(8px); background: rgba(16, 36, 94, 0.55); }
       #build div { padding: 8px 14px; border-right: 1px solid var(--line-dim); display: grid; gap: 2px; min-width: 64px; }
@@ -46,7 +61,15 @@
   </head>
   <body>
     <div id="stage" tabindex="0"></div>
-    <div class="hud" id="mark"><b>Housewarming</b><span id="room-name"></span></div>
+    <div class="hud" id="mark"><b>Housewarming</b><button id="room-name" class="link"></button>
+      <div id="rooms" hidden></div>
+    </div>
+    <input type="file" id="file" accept="video/mp4,video/quicktime,image/jpeg,image/png,image/webp" hidden />
+    <div class="hud" id="building" hidden>
+      <b id="b-name"></b>
+      <ol id="b-stages"></ol>
+      <em id="b-line"></em>
+    </div>
     <div class="hud" id="build" hidden></div>
     <div class="hud" id="controls">
       <div class="seg" id="viewseg" hidden>
