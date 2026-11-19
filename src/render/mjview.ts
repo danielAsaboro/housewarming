@@ -15,7 +15,10 @@ export class MjView {
   readonly models = new Object3D();
   /** every drawn object follows a MuJoCo geom; `kind` decides its visibility */
   private items: { geom: number; obj: Object3D; kind: 'robot' | 'plane' | 'wallFill' | 'wallEdge' | 'boxFill' | 'boxEdge' | 'part'; modelled?: boolean }[] = [];
-  private attached: { body: number; obj: Object3D; interactive: boolean }[] = [];
+  private attached: { body: number; obj: Object3D; interactive: boolean; owner: string }[] = [];
+  /** articulated objects currently opened (by box id): shown over the real scan while open */
+  private active = new Set<string>();
+  setActive(owner: string, on: boolean) { if (on) this.active.add(owner); else this.active.delete(owner); this.apply(); }
   private q = new Quaternion();
   private state = { walls: true, boxes: true, models: true, lines: false, robot: true };
   /** during the reveal, boxes of modelled objects show briefly before their models replace them */
@@ -82,7 +85,7 @@ export class MjView {
         /* part */ s.boxes && !s.lines && !modelled;
     }
     this.models.visible = true;
-    for (const a of this.attached) a.obj.visible = s.models || (a.interactive && s.lines);
+    for (const a of this.attached) a.obj.visible = s.models || (a.interactive && s.lines && this.active.has(a.owner));
   }
 
   /** Replace a body's drawn geoms with `obj` (e.g. a Lux3D model) that follows the body's pose. */
@@ -101,7 +104,7 @@ export class MjView {
     const isPart = m.body_parentid[body] !== 0 && m.body_jntnum[body] > 0 && m.jnt_type[m.body_jntadr[body]] !== 0;
     let hasMovingChild = false;
     for (let b = 0; b < m.nbody; b++) if (m.body_parentid[b] === body && m.body_jntnum[b] > 0 && m.jnt_type[m.body_jntadr[b]] !== 0) hasMovingChild = true;
-    this.attached.push({ body, obj: holder, interactive: isPart || hasMovingChild });
+    this.attached.push({ body, obj: holder, interactive: isPart || hasMovingChild, owner: bodyName.replace(/_part\d+$/, '') });
     this.apply();
     this.sync();
     return true;

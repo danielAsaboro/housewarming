@@ -22,7 +22,7 @@ export interface Manifest {
 
 export async function loadManifest(id: string): Promise<{ manifest: Manifest; base: string; layoutText: string }> {
   const base = `/rooms/${id}/`;
-  const manifest: Manifest = await (await fetch(base + 'manifest.json')).json();
+  const manifest: Manifest = await (await fetch(base + 'manifest.json', { cache: 'no-cache' })).json();
   const layoutText = await (await fetch(base + manifest.layout)).text();
   return { manifest, base, layoutText };
 }

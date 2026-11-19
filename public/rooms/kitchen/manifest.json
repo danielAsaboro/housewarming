@@ -359,6 +359,7 @@
   },
   "worldId": "3FO4K4V985GX",
   "thumb": "thumb.jpg",
+  "occupancy": "occupancy.json",
   "timings": {
     "world": 716,
     "layout": 74,

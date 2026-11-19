@@ -33,6 +33,13 @@ async function main() {
     Promise.all(ROBOT_FILES.map(async (f) => [f, new Uint8Array(await (await fetch(`/robots/lite3/${f}`)).arrayBuffer())] as const)),
   ]);
   const { manifest, base, layoutText } = room;
+  const occFile = (manifest as { occupancy?: string }).occupancy;
+  if (occFile) {
+    try {
+      occ = await (await fetch(base + occFile)).json();
+      occ!.grid = Uint8Array.from(atob(occ!.bits), (c) => c.charCodeAt(0));
+    } catch { occ = null; }
+  }
   const layout = parseLayout(layoutText);
   const objects = articulationAssets(layout, manifest);
   const sceneXml = buildScene(layout, { robotInclude: 'lite3.xml', objects });
@@ -86,6 +93,8 @@ async function main() {
     const best = nearestDoor();
     if (!best) return;
     best.open = !best.open;
+    if (best.open) view.setActive(best.b.id, true);
+    else { const id = best.b.id; setTimeout(() => { if (!doors.find((d) => d.b.id === id)?.open) view.setActive(id, false); }, 1600); }
     objects[best.b.id].joints!.forEach((jt, i) => {
       const a = mj.mj_name2id(model, A, `${best!.b.id}_j${i}_act`);
       if (a >= 0) data.ctrl[a] = best!.open ? objects[best!.b.id].open[i] * 0.95 : 0;
@@ -227,7 +236,7 @@ async function main() {
   };
   requestAnimationFrame(frame);
   document.body.classList.add('ready');
-  Object.assign(window, { __hw: { mj, model, data, robot, layout, viewer, view, manifest, objects, toggleNearest, sceneXml, cam: (o: number, p: number, d: number) => { orbit = o; pitch = p; dist = d; }, setView } });
+  Object.assign(window, { __hw: { mj, model, data, robot, layout, viewer, view, manifest, objects, toggleNearest, sceneXml, cam: (o: number, p: number, d: number) => { orbit = o; pitch = p; dist = d; }, setView, debug: () => ({ occ: !!occ, camDist, camHeading, orbit, clear: rayClear(camTarget[0], camTarget[1], camHeading + orbit, layout) }) } });
 }
 
 function hud(m: Awaited<ReturnType<typeof loadManifest>>['manifest'] & { timings?: Record<string, number>; counts?: Record<string, number> }, l: Layout, hasSplat: boolean, hasDoors: boolean) {
@@ -247,9 +256,20 @@ function hud(m: Awaited<ReturnType<typeof loadManifest>>['manifest'] & { timings
   el.hidden = false;
 }
 
-/** Distance from (x, y) along heading `ang` to the first wall or tall object (2D). */
+interface Occ { origin: number[]; res: number; w: number; h: number; bits: string; grid?: Uint8Array }
+let occ: Occ | null = null;
+const occupied = (x: number, y: number) => {
+  if (!occ) return false;
+  const cx = Math.floor((x - occ.origin[0]) / occ.res), cy = Math.floor((y - occ.origin[1]) / occ.res);
+  if (cx < 0 || cy < 0 || cx >= occ.w || cy >= occ.h) return false;
+  const k = cy * occ.w + cx; return (occ.grid![k >> 3] >> (k & 7)) & 1;
+};
+
+/** Distance from (x, y) along heading `ang` to the first wall, tall object, or occupied scan cell (2D). */
 function rayClear(x: number, y: number, ang: number, l: Layout) {
   const dx = Math.cos(ang), dy = Math.sin(ang); let best = 12;
+  // scan occupancy: things the layout model missed (counters, islands); skip the robot's own cell
+  if (occ) for (let t = 0.45; t < best; t += occ.res / 2) if (occupied(x + dx * t, y + dy * t)) { best = t; break; }
   const seg = (ax: number, ay: number, bx: number, by: number) => {
     const ex = bx - ax, ey = by - ay, den = dx * ey - dy * ex;
     if (Math.abs(den) < 1e-9) return;

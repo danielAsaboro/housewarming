@@ -19,6 +19,7 @@ import { readPly, splatRgb, writePointCloud } from './lib/ply.mjs';
 import { alignRoom } from './lib/align.mjs';
 import { jointsFromGlb } from './lib/joints.mjs';
 import { parseUrdf } from './lib/urdf.mjs';
+import { occupancy } from './lib/occupancy.mjs';
 import { execFileSync } from 'node:child_process';
 
 const { values: args } = parseArgs({
@@ -220,6 +221,15 @@ const only = args.only?.split(',');
 const run = (n) => !only || only.includes(n);
 if (run('world')) await worldStep();
 if (run('align')) await alignStep();
+if (run('align') || run('occupancy')) await step('occupancy', async () => {
+  const ply = readPly(path.join(DIR, 'aligned.ply'));
+  const x = ply.get('x'), y = ply.get('y'), z = ply.get('z'), pts = new Float32Array(3 * ply.count);
+  for (let i = 0; i < ply.count; i++) { pts[3 * i] = x[i]; pts[3 * i + 1] = y[i]; pts[3 * i + 2] = z[i]; }
+  const occ = occupancy(pts);
+  await writeFile(path.join(DIR, 'occupancy.json'), JSON.stringify(occ));
+  log('occupancy', `${occ.w}x${occ.h} cells, ${occ.occupied} occupied`);
+  return 'occupancy.json';
+});
 if (run('layout')) await layoutStep();
 if (run('objects')) await objectsStep();
 // the manifest is rebuilt from saved state, so a partial or repeated run still lists everything finished so far
@@ -242,6 +252,7 @@ const manifest = {
   articulated: objects.articulated,
   worldId: state.world_op?.worldId,
   thumb: await thumb(),
+  occupancy: state.occupancy,
   // seconds per stage, for the build strip in the app
   timings: {
     world: (state.upload_src_s ?? 0) + (state.world_op_s ?? 0) + (state.world_detail_s ?? 0),
