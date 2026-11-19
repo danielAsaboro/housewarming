@@ -7,7 +7,7 @@ import { parseLayout, type Layout } from './layout/spatiallm';
 import { buildScene } from './layout/mjcf';
 import { Lite3Controller } from './robot/lite3';
 import { MjView } from './render/mjview';
-import { articulationAssets, loadManifest, loadModels, loadSplat, poseAnimated, type Animated } from './room';
+import { articulationAssets, loadManifest, loadModels, loadSplat } from './room';
 import { exportMjcf } from './export';
 
 const ROBOT_FILES = ['lite3.xml', 'meshes/hip.STL', 'meshes/shank.STL', 'meshes/thigh.STL', 'meshes/torso.STL'];
@@ -42,7 +42,7 @@ async function main() {
   const data = new mj.MjData(model);
   const robot = new Lite3Controller(mj, model, data, session, ort);
   const spawn = spawnPoint(layout);
-  robot.spawn(spawn[0], spawn[1], spawn[2]);
+  robot.spawn(spawn[0], spawn[1], 0, spawn[2]);
 
   const viewer = createViewer('housewarming', stage, {});
   const camera = new PerspectiveCamera(55, stage.clientWidth / stage.clientHeight, 0.05, 200);
@@ -67,13 +67,8 @@ async function main() {
   if (splat) scene.add(splat);
 
   let simView = !splat;
-  const animated: Animated[] = [];
-  for (const v of await loadModels(base, manifest, layout)) {
-    view.attach(v.box.id, v.obj);
-    if (v.animated) animated.push(v.animated);
-  }
-  const J = mj.mjtObj.mjOBJ_JOINT.value, A = mj.mjtObj.mjOBJ_ACTUATOR.value;
-  const qposOf = (name: string) => { const j = mj.mj_name2id(model, J, name); return j < 0 ? 0 : data.qpos[model.jnt_qposadr[j]]; };
+  for (const v of await loadModels(base, manifest, layout)) view.attach(v.body, v.obj);
+  const A = mj.mjtObj.mjOBJ_ACTUATOR.value;
 
   // articulated objects: F toggles the nearest one within reach
   const doors = layout.boxes.filter((b) => objects[b.id]?.joints?.length).map((b) => ({ b, open: false }));
@@ -85,16 +80,26 @@ async function main() {
     best.open = !best.open;
     objects[best.b.id].joints!.forEach((jt, i) => {
       const a = mj.mj_name2id(model, A, `${best!.b.id}_j${i}_act`);
-      if (a >= 0) data.ctrl[a] = best!.open ? jt.range[1] * 0.95 : 0;
+      if (a >= 0) data.ctrl[a] = best!.open ? objects[best!.b.id].open[i] * 0.95 : 0;
     });
   };
+
+  const setView = (sim: boolean) => {
+    if (!splat) return;
+    simView = sim; splat.visible = !sim; view.setRoomVisible(sim);
+    document.querySelectorAll<HTMLButtonElement>('#viewseg button').forEach((b) => b.setAttribute('aria-pressed', String((b.dataset.view === 'blueprint') === sim)));
+  };
+  hud(manifest, layout, !!splat, doors.length > 0);
+  document.querySelectorAll<HTMLButtonElement>('#viewseg button').forEach((b) => b.addEventListener('click', () => { setView(b.dataset.view === 'blueprint'); stage.focus(); }));
+  document.getElementById('open')!.addEventListener('click', () => { toggleNearest(); stage.focus(); });
+  document.getElementById('export')!.addEventListener('click', () => { exportMjcf(id, sceneXml, robotFiles); stage.focus(); });
 
   const keys = new Set<string>();
   stage.addEventListener('keydown', (e) => {
     const k = e.key.toLowerCase();
     if (k === 'f' && !keys.has('f')) toggleNearest();
     if (k === 'm' && !keys.has('m')) exportMjcf(id, sceneXml, robotFiles);
-    if (k === 'v' && !keys.has('v') && splat) { simView = !simView; splat.visible = !simView; view.setRoomVisible(simView); }
+    if (k === 'v' && !keys.has('v')) setView(!simView);
     keys.add(k);
   });
   stage.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
@@ -118,7 +123,7 @@ async function main() {
   const physics = async () => {
     const ax = (k: string, k2: string) => (keys.has(k) || keys.has(k2) ? 1 : 0);
     robot.cmd = [ax('w', 'arrowup') - ax('s', 'arrowdown'), ax('q', 'q') - ax('e', 'e'), ax('a', 'arrowleft') - ax('d', 'arrowright')];
-    if (keys.has('r')) robot.spawn(spawn[0], spawn[1], spawn[2]);
+    if (keys.has('r')) robot.spawn(spawn[0], spawn[1], 0, spawn[2]);
     const now = performance.now();
     simClock = Math.max(simClock, now - 100); // never owe more than 100 ms
     while (simClock < now) { await robot.step(); simClock += timestep * 1000; }
@@ -129,7 +134,6 @@ async function main() {
   const frame = () => {
     requestAnimationFrame(frame);
     view.sync();
-    for (const a of animated) poseAnimated(a, qposOf);
     const { pos, quat } = robot.pose();
     const heading = 2 * Math.atan2(quat[3], quat[0]);
     const a = heading + orbit;
@@ -138,7 +142,24 @@ async function main() {
     viewer.render();
   };
   requestAnimationFrame(frame);
+  document.body.classList.add('ready');
   Object.assign(window, { __hw: { mj, model, data, robot, layout, viewer, view, manifest, objects, toggleNearest, sceneXml } });
+}
+
+function hud(m: Awaited<ReturnType<typeof loadManifest>>['manifest'] & { timings?: Record<string, number>; counts?: Record<string, number> }, l: Layout, hasSplat: boolean, hasDoors: boolean) {
+  document.getElementById('room-name')!.textContent = m.id;
+  (document.getElementById('viewseg') as HTMLElement).hidden = !hasSplat;
+  (document.getElementById('open') as HTMLButtonElement).disabled = !hasDoors;
+  const t = m.timings, fmt = (s?: number) => (s ? (s >= 90 ? `${Math.round(s / 60)}m` : `${s}s`) : '—');
+  const stages: [string, string][] = [
+    [m.source === 'video' ? 'Scan' : 'World', fmt(t?.world)],
+    ['Layout', `${l.walls.length}w ${l.boxes.length}o`],
+    ['Lux3D', `${Object.keys(m.models ?? {}).length}`],
+    ['Joints', `${Object.values(m.articulated ?? {}).reduce((n, a) => n + (a.joints?.length ?? 0), 0)}`],
+  ];
+  const el = document.getElementById('build')!;
+  el.innerHTML = stages.map(([a, b]) => `<div><i>${a}</i><em>${b}</em></div>`).join('');
+  el.hidden = false;
 }
 
 /** A free spot near the room's center. */
@@ -152,7 +173,8 @@ function spawnPoint(l: Layout): [number, number, number] {
     const px = x + r * Math.cos((k * Math.PI) / 4), py = y + r * Math.sin((k * Math.PI) / 4);
     if (!blocked(px, py)) { x = px; y = py; break; }
   }
-  return [x, y, 0];
+  const floor = [...l.walls.map((w) => Math.min(w.a[2], w.b[2]))].sort((a, b) => a - b)[Math.floor(l.walls.length / 2)];
+  return [x, y, floor];
 }
 
 main().catch((e) => {

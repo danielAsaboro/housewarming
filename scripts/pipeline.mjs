@@ -18,6 +18,8 @@ import { parseArgs } from 'node:util';
 import { readPly, splatRgb, writePointCloud } from './lib/ply.mjs';
 import { alignRoom } from './lib/align.mjs';
 import { jointsFromGlb } from './lib/joints.mjs';
+import { parseUrdf } from './lib/urdf.mjs';
+import { execFileSync } from 'node:child_process';
 
 const { values: args } = parseArgs({
   options: {
@@ -52,6 +54,16 @@ async function download(url, file) {
 async function rest(method, p, body) {
   const res = await fetch(`${BASE}${p}`, { method, headers: { Authorization: KEY, 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) });
   const t = await res.text(); if (!res.ok) throw new Error(`${method} ${p} ${res.status} ${t.slice(0, 300)}`); return JSON.parse(t);
+}
+/** Aholo allows 5 concurrent Lux3D tasks: wait for a slot instead of failing. */
+async function slot(fn) {
+  for (let i = 0; ; i++) {
+    try { return await fn(); } catch (e) {
+      if (!/Concurrent generation task limit/i.test(e.message) || i > 120) throw e;
+      if (i % 6 === 0) log('waiting for a Lux3D slot');
+      await new Promise((ok) => setTimeout(ok, 15000));
+    }
+  }
 }
 const glbUrl = (r) => (r.outputs.find((o) => /\.glb(\?|$)/i.test(o.content ?? '')) ?? r.outputs.find((o) => o.content?.startsWith('http')))?.content;
 
@@ -126,6 +138,9 @@ const ARTICULATE = {
   nightstand: 'Keep the nightstand body fixed. Add a prismatic joint so the drawer slides straight out.',
   refrigerator: 'Keep the refrigerator body fixed. Add a vertical revolute hinge on the door so it swings open about 100 degrees.',
   cabinet: 'Keep the cabinet body fixed. Add a vertical revolute hinge on each door so it swings open.',
+  'wine cabinet': 'Keep the cabinet body fixed. Add a vertical revolute hinge on the glass door so it swings open.',
+  'kitchen cabinet': 'Keep the cabinet body fixed. Add a vertical revolute hinge on each door so it swings open.',
+  'bookcase': 'Keep the bookcase body fixed. Add a vertical revolute hinge on each lower door so it swings open.',
 };
 async function objectsStep() {
   const { parseLayout } = await import('../src/layout/spatiallm.ts');
@@ -137,30 +152,49 @@ async function objectsStep() {
   log('classes', JSON.stringify(classes), '→ generating', JSON.stringify(pick));
   // fire all text→3D tasks first, then wait (Lux3D runs them concurrently)
   const tasks = {};
-  for (const cls of pick) tasks[cls] = await step(`gen_${cls}_task`, () => lux3d.textTo3d.create({
+  for (const cls of pick) tasks[cls] = await step(`gen_${cls}_task`, () => slot(() => lux3d.textTo3d.create({
     prompt: `A single ${cls} as found in a real home, realistic materials, whole object visible, plain background`,
-    version: 'G1', outputFormat: ['glb'], aiPredictSize: true,
-  }));
+    version: 'G1', outputFormat: ['glb'], aiPredictSize: true, faceCount: 80000,
+  })));
   const models = {};
   await Promise.all(pick.map(async (cls) => {
     try {
       const r = await step(`gen_${cls}_result`, () => lux3d.tasks.waitFor(tasks[cls], LONG));
       const url = glbUrl(r); const file = `models/${slug(cls)}.glb`;
-      await step(`gen_${cls}_file`, async () => { await download(url, file); return { file, url }; });
+      await step(`gen_${cls}_file`, async () => { await download(url, `models/raw-${slug(cls)}.glb`); optimize(`models/raw-${slug(cls)}.glb`, file); return { file, url }; });
       models[cls] = file;
     } catch (e) { log('object failed', cls, e.message); }
   }));
   const articulated = {};
   await Promise.all(pick.filter((c) => ARTICULATE[c] && state[`gen_${c}_file`]).map(async (cls) => {
     try {
-      const t = await step(`art_${cls}_task`, () => lux3d.articulationAnimation.create({ glbUrl: state[`gen_${cls}_file`].url, prompt: ARTICULATE[cls] }));
+      const t = await step(`art_${cls}_task`, () => slot(() => lux3d.articulationAnimation.create({ glbUrl: state[`gen_${cls}_file`].url, prompt: ARTICULATE[cls] })));
       const r = await step(`art_${cls}_result`, () => lux3d.tasks.waitFor(t, LONG));
-      const file = `models/${slug(cls)}-articulated.glb`;
-      await step(`art_${cls}_file`, async () => { await download(glbUrl(r), file); return file; });
-      articulated[cls] = { file, joints: jointsFromGlb(await readFile(path.join(DIR, file))) };
+      articulated[cls] = await step(`art_${cls}_urdf`, () => unpackUrdf(cls, r.outputs.find((o) => o.content?.startsWith('http')).content));
     } catch (e) { log('articulation failed', cls, e.message); }
   }));
   return { models, articulated };
+}
+function optimize(src, dst) {
+  execFileSync('npx', ['gltf-transform', 'optimize', path.join(DIR, src), path.join(DIR, dst), '--compress', 'false', '--texture-compress', 'auto', '--texture-size', '1024', '--simplify', 'true', '--simplify-ratio', '0.3', '--simplify-error', '0.002'], { stdio: 'ignore' });
+}
+/** Lux3D articulation returns a zip: urdf/robot.urdf + urdf/meshes/<link>.glb (glTF frame, meters). */
+async function unpackUrdf(cls, url) {
+  const dir = `models/${slug(cls)}-urdf`;
+  await download(url, `${dir}.zip`);
+  await mkdir(path.join(DIR, dir), { recursive: true });
+  execFileSync('unzip', ['-o', '-q', path.join(DIR, `${dir}.zip`), '-d', path.join(DIR, dir)]);
+  const urdfPath = execFileSync('find', [path.join(DIR, dir), '-name', '*.urdf']).toString().trim().split('\n')[0];
+  const urdf = parseUrdf(await readFile(urdfPath, 'utf8'));
+  const links = {};
+  for (const [name, l] of Object.entries(urdf.links)) {
+    if (!l.mesh) continue;
+    const src = path.relative(DIR, path.join(path.dirname(urdfPath), l.mesh));
+    const file = `${dir}/${name}.glb`;
+    optimize(src, file);
+    links[name] = { file, bounds: jointsFromGlb(await readFile(path.join(DIR, file))).model };
+  }
+  return { root: urdf.root, links, joints: urdf.joints };
 }
 const vol = (l, c) => Math.max(...l.boxes.filter((b) => b.cls === c).map((b) => b.size[0] * b.size[1] * b.size[2]));
 const slug = (s) => s.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
@@ -185,6 +219,19 @@ const manifest = {
   models: objects.models,
   articulated: objects.articulated,
   worldId: state.world_op?.worldId,
+  // seconds per stage, for the build strip in the app
+  timings: {
+    world: (state.upload_src_s ?? 0) + (state.world_op_s ?? 0) + (state.world_detail_s ?? 0),
+    layout: (state.align_s ?? 0) + (state.aligned_upload_s ?? 0) + (state.su_task_s ?? 0) + (state.su_result_s ?? 0),
+    objects: Math.max(0, ...Object.keys(state).filter((k) => /^gen_.*_result_s$/.test(k)).map((k) => state[k])),
+    joints: Math.max(0, ...Object.keys(state).filter((k) => /^art_.*_result_s$/.test(k)).map((k) => state[k])),
+  },
+  counts: {},
 };
+try {
+  const { parseLayout } = await import('../src/layout/spatiallm.ts');
+  const l = parseLayout(await readFile(path.join(DIR, 'layout.txt'), 'utf8'));
+  manifest.counts = { walls: l.walls.length, doors: l.openings.filter((o) => o.kind === 'door').length, windows: l.openings.filter((o) => o.kind === 'window').length, objects: l.boxes.length };
+} catch {}
 await writeFile(path.join(DIR, 'manifest.json'), JSON.stringify(manifest, null, 2));
 log('manifest written', path.join(DIR, 'manifest.json'));

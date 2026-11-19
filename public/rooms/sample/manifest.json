@@ -2,6 +2,131 @@
   "id": "sample",
   "source": "hand-written layout in the Spatial Understanding format",
   "layout": "layout.txt",
-  "models": { "dining chair": "models/dining-chair.glb", "chair": "models/dining-chair.glb" },
-  "articulated": {}
+  "models": {
+    "dining chair": "models/dining-chair.glb",
+    "chair": "models/dining-chair.glb"
+  },
+  "articulated": {
+    "wardrobe": {
+      "root": "body",
+      "links": {
+        "body": {
+          "file": "models/cabinet-urdf/body.glb",
+          "bounds": {
+            "min": [
+              -0.4382784962654114,
+              0,
+              -0.25818753242492676
+            ],
+            "max": [
+              0.4382784962654114,
+              1.100000023841858,
+              0.15560325980186462
+            ]
+          }
+        },
+        "door_left": {
+          "file": "models/cabinet-urdf/door_left.glb",
+          "bounds": {
+            "min": [
+              -0.006219925824552774,
+              -0.2851581275463104,
+              -0.139337956905365
+            ],
+            "max": [
+              0.33837249875068665,
+              0.46918216347694397,
+              0.10963474959135056
+            ]
+          }
+        },
+        "door_right": {
+          "file": "models/cabinet-urdf/door_right.glb",
+          "bounds": {
+            "min": [
+              -0.34445449709892273,
+              -0.5255222320556641,
+              -0.035732124000787735
+            ],
+            "max": [
+              0.00013792589015793055,
+              0.23120518028736115,
+              0.05788406729698181
+            ]
+          }
+        },
+        "drawer_bottom": {
+          "file": "models/cabinet-urdf/drawer_bottom.glb",
+          "bounds": {
+            "min": [
+              -0.3610028922557831,
+              -0.07684969156980515,
+              -0.19194452464580536
+            ],
+            "max": [
+              0.33935198187828064,
+              0.08335763961076736,
+              0.09209421277046204
+            ]
+          }
+        }
+      },
+      "joints": [
+        {
+          "name": "door_left_joint",
+          "type": "hinge",
+          "parent": "body",
+          "child": "door_left",
+          "origin": [
+            -0.339569,
+            0.53676401,
+            0.028213
+          ],
+          "axis": [
+            0.002708,
+            0.997875,
+            0.065103
+          ],
+          "lower": -1.570796,
+          "upper": 0
+        },
+        {
+          "name": "door_right_joint",
+          "type": "hinge",
+          "parent": "body",
+          "child": "door_right",
+          "origin": [
+            0.345651,
+            0.77474101,
+            0.079898
+          ],
+          "axis": [
+            0.001589,
+            0.999785,
+            -0.020686
+          ],
+          "lower": 0,
+          "upper": 1.570796
+        },
+        {
+          "name": "drawer_bottom_joint",
+          "type": "slide",
+          "parent": "body",
+          "child": "drawer_bottom",
+          "origin": [
+            0.009,
+            0.13720901,
+            0.166093
+          ],
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "lower": -0.136628,
+          "upper": 0.024323
+        }
+      ]
+    }
+  }
 }

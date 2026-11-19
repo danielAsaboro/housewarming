@@ -101,7 +101,8 @@ function objectBody(b: Box, asset?: ObjectAsset): string[] {
     const ph: Vec3 = [j.part.size[0] / 2, j.part.size[1] / 2, j.part.size[2] / 2];
     out.push(`      <body name="${name}_part${i}">`);
     out.push(`        <joint name="${name}_j${i}" type="${j.type}" pos="${v(j.pos)}" axis="${v(j.axis)}" range="${f(j.range[0])} ${f(j.range[1])}" damping="0.5" armature="0.01"/>`);
-    out.push(`        <geom name="${name}_part${i}_col" type="box" pos="${v(j.part.center)}" size="${v(ph)}" mass="1" rgba="0.55 0.45 0.35 1"/>`);
+    // parts are driven by their position servo; they don't collide (they'd catch the wall the cabinet stands against)
+    out.push(`        <geom name="${name}_part${i}_col" type="box" pos="${v(j.part.center)}" size="${v(ph)}" mass="1" contype="0" conaffinity="0" rgba="0.55 0.45 0.35 1"/>`);
     if (j.mesh) out.push(`        <geom type="mesh" mesh="${meshName(j.mesh)}" contype="0" conaffinity="0" group="1"/>`);
     out.push('      </body>');
   }

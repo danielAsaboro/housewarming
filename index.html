@@ -4,13 +4,58 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Housewarming</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet" />
     <style>
-      html, body { margin: 0; height: 100%; background: #f3efe8; overflow: hidden; }
-      #stage { position: fixed; inset: 0; }
+      :root {
+        --cobalt: #1b3a8f; --deep: #10245e; --line: #e8eefc; --line-dim: rgba(232, 238, 252, 0.28);
+        --paper: #f3efe8; --ink: #1d1b18; --act: #d9643a;
+      }
+      html, body { margin: 0; height: 100%; background: var(--deep); overflow: hidden; color: var(--line); font-family: 'Inter Tight', system-ui, sans-serif; }
+      #stage { position: fixed; inset: 0; outline: none; }
+      .hud { position: fixed; pointer-events: none; }
+      .hud * { pointer-events: auto; }
+      [hidden] { display: none !important; }
+
+      #mark { top: 20px; left: 24px; display: flex; align-items: baseline; gap: 12px; }
+      #mark b { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+      #mark span { font: 500 12px 'JetBrains Mono', monospace; color: var(--line-dim); text-transform: lowercase; }
+
+      #build { top: 20px; right: 24px; display: flex; gap: 0; border: 1px solid var(--line-dim); border-radius: 10px; overflow: hidden; backdrop-filter: blur(8px); background: rgba(16, 36, 94, 0.55); }
+      #build div { padding: 8px 14px; border-right: 1px solid var(--line-dim); display: grid; gap: 2px; min-width: 64px; }
+      #build div:last-child { border-right: 0; }
+      #build i { font-style: normal; font-size: 11px; font-weight: 600; letter-spacing: 0.02em; }
+      #build em { font: 500 12px 'JetBrains Mono', monospace; font-style: normal; color: var(--line-dim); }
+
+      #controls { bottom: 24px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; align-items: center; }
+      .seg { display: flex; border: 1px solid var(--line-dim); border-radius: 999px; padding: 3px; background: rgba(16, 36, 94, 0.55); backdrop-filter: blur(8px); }
+      button { font: 600 13px 'Inter Tight', sans-serif; color: var(--line); background: transparent; border: 0; border-radius: 999px; padding: 9px 16px; cursor: pointer; }
+      .seg button[aria-pressed='true'] { background: var(--line); color: var(--deep); }
+      .solo { border: 1px solid var(--line-dim); background: rgba(16, 36, 94, 0.55); backdrop-filter: blur(8px); }
+      .solo:hover, .seg button:hover:not([aria-pressed='true']) { background: rgba(232, 238, 252, 0.12); }
+      #open { background: var(--act); color: #fff; border: 1px solid var(--act); }
+      #open[disabled] { opacity: 0.35; cursor: default; }
+      kbd { font: 500 11px 'JetBrains Mono', monospace; opacity: 0.6; margin-left: 6px; }
+
+      #loading { inset: 0; display: grid; place-items: center; background: var(--deep); transition: opacity 0.5s; }
+      #loading b { font-size: 28px; letter-spacing: -0.02em; }
+      body.ready #loading { opacity: 0; pointer-events: none; }
+      @media (max-width: 720px) { #build { display: none; } #mark { left: 16px; } }
     </style>
   </head>
   <body>
     <div id="stage" tabindex="0"></div>
+    <div class="hud" id="mark"><b>Housewarming</b><span id="room-name"></span></div>
+    <div class="hud" id="build" hidden></div>
+    <div class="hud" id="controls">
+      <div class="seg" id="viewseg" hidden>
+        <button data-view="room" aria-pressed="true">Room</button>
+        <button data-view="blueprint" aria-pressed="false">Blueprint</button>
+      </div>
+      <button id="open" disabled>Open<kbd>F</kbd></button>
+      <button class="solo" id="export">MJCF<kbd>M</kbd></button>
+    </div>
+    <div class="hud" id="loading"><b>Housewarming</b></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

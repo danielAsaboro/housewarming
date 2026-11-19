@@ -6,3 +6,9 @@ spike-out/
 hackathon
 .DS_Store
 public/ort/
+public/rooms/*/state.json
+public/rooms/*/raw.ply
+public/rooms/*/aligned.ply
+public/rooms/*/models/raw-*.glb
+public/rooms/*/models/*-urdf.zip
+public/rooms/*/pipeline.log

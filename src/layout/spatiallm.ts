@@ -37,7 +37,7 @@ export function parseLayout(text: string): Layout {
           // class may contain spaces or commas: take the last 7 numbers, the rest is the class.
           if (parts.length < 8) throw new Error('short Bbox');
           const n = nums(parts.slice(-7), 7);
-          const cls = parts.slice(0, -7).join(',').replace(/^["']|["']$/g, '').trim();
+          const cls = parts.slice(0, -7).join(',').replace(/^["']|["']$/g, '').replace(/_/g, ' ').trim();
           out.boxes.push({ id, cls, center: [n[0], n[1], n[2]], angleZ: n[3], size: [n[4], n[5], n[6]] });
           break;
         }
