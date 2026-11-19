@@ -42,7 +42,9 @@ async function main() {
   }
   const layout = parseLayout(layoutText);
   const objects = articulationAssets(layout, manifest);
-  const sceneXml = buildScene(layout, { robotInclude: 'lite3.xml', objects });
+  const colFile = (manifest as { colliders?: string }).colliders;
+  const scan = colFile ? await fetch(base + colFile).then((r) => r.json()).catch(() => []) : [];
+  const sceneXml = buildScene(layout, { robotInclude: 'lite3.xml', objects, scan });
 
   mj.FS.mkdirTree('/work/meshes', 0o777);
   for (const [f, bytes] of robotFiles) mj.FS.writeFile(`/work/${f}`, bytes);

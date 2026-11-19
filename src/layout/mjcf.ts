@@ -25,6 +25,8 @@ export interface SceneOptions {
   objects?: Record<string, ObjectAsset>;
   /** MJCF file to <include>, e.g. a Menagerie robot; its free joint is placed via spawn() */
   robotInclude?: string;
+  /** static colliders from the scan for furniture the layout model missed (meters, floor-relative height) */
+  scan?: { center: number[]; size: number[]; height: number }[];
 }
 
 const NON_COLLIDING = new Set(['carpet', 'curtain', 'painting', 'chandelier', 'illumination', 'wall decoration', 'plants']);
@@ -70,6 +72,10 @@ export function buildScene(layout: Layout, opts: SceneOptions = {}): string {
     }
   }
 
+  for (const [i, c] of (opts.scan ?? []).entries()) {
+    const hz = Math.max(0.05, c.height - floorZ) / 2;
+    L.push(`    <geom name="scan_${i}" class="wall" pos="${f(c.center[0])} ${f(c.center[1])} ${f(floorZ + hz)}" size="${f(c.size[0] / 2)} ${f(c.size[1] / 2)} ${f(hz)}"/>`);
+  }
   for (const b of layout.boxes) L.push(...objectBody(b, opts.objects?.[b.id]));
   L.push('  </worldbody>');
   // soft position servos so doors/drawers can be opened on command and still be pushed by the robot
