@@ -140,11 +140,19 @@ async function main() {
   // Physics runs on its own timer at wall-clock rate (≈19x headroom); rendering draws whatever state is current.
   const timestep = model.opt.timestep;
   let simClock = performance.now();
-  let paused = true;
+  let paused = true, downSince = 0;
   const physics = async () => {
     if (paused) { simClock = performance.now(); setTimeout(physics, 16); return; }
     const ax = (k: string, k2: string) => (keys.has(k) || keys.has(k2) ? 1 : 0);
     robot.cmd = [ax('w', 'arrowup') - ax('s', 'arrowdown'), ax('q', 'q') - ax('e', 'e'), ax('a', 'arrowleft') - ax('d', 'arrowright')];
+    // fall recovery: tipped over or slumped for a second → stand back up where it is
+    const { pos, quat } = robot.pose();
+    const up = 1 - 2 * (quat[1] * quat[1] + quat[2] * quat[2]); // body z-axis · world z
+    if (up < 0.6 || pos[2] < spawn[2] + 0.2) { if (!downSince) downSince = performance.now(); } else downSince = 0;
+    if (downSince && performance.now() - downSince > 1000) {
+      downSince = 0;
+      robot.spawn(pos[0], pos[1], 2 * Math.atan2(quat[3], quat[0]), spawn[2]);
+    }
     const now = performance.now();
     simClock = Math.max(simClock, now - 100); // never owe more than 100 ms
     while (simClock < now) { await robot.step(); simClock += timestep * 1000; }
