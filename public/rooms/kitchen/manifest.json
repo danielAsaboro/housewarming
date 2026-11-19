@@ -44,16 +44,326 @@
     "refrigerator": "models/refrigerator.glb",
     "dining table": "models/dining-table.glb",
     "dining chair": "models/dining-chair.glb",
-    "coffee table": "models/coffee-table.glb"
+    "coffee table": "models/coffee-table.glb",
+    "tv": "models/tv.glb"
   },
-  "articulated": {},
+  "articulated": {
+    "refrigerator": {
+      "root": "body",
+      "links": {
+        "body": {
+          "file": "models/refrigerator-urdf/body.glb",
+          "bounds": {
+            "min": [
+              -0.875,
+              0,
+              -0.6869897246360779
+            ],
+            "max": [
+              0.875,
+              3.3807151317596436,
+              0.5840246081352234
+            ]
+          }
+        },
+        "door_left": {
+          "file": "models/refrigerator-urdf/door_left.glb",
+          "bounds": {
+            "min": [
+              0.0011851987801492214,
+              -1.2606467008590698,
+              -0.05058760195970535
+            ],
+            "max": [
+              0.845000684261322,
+              0.7862706184387207,
+              0.1940307319164276
+            ]
+          }
+        },
+        "door_right": {
+          "file": "models/refrigerator-urdf/door_right.glb",
+          "bounds": {
+            "min": [
+              -0.847686231136322,
+              -2.037947177886963,
+              -0.029536347836256027
+            ],
+            "max": [
+              0.014620677568018436,
+              0.0016336385160684586,
+              0.19650955498218536
+            ]
+          }
+        },
+        "drawer_bottom": {
+          "file": "models/refrigerator-urdf/drawer_bottom.glb",
+          "bounds": {
+            "min": [
+              -0.8579220175743103,
+              -0.478630393743515,
+              -0.5860320925712585
+            ],
+            "max": [
+              0.8572825193405151,
+              0.6805558204650879,
+              0.6412761211395264
+            ]
+          }
+        }
+      },
+      "joints": [
+        {
+          "name": "door_left_joint",
+          "type": "hinge",
+          "parent": "body",
+          "child": "door_left",
+          "origin": [
+            -0.856007,
+            2.57683657,
+            0.492959
+          ],
+          "axis": [
+            -0.000113,
+            -0.999998,
+            -0.001893
+          ],
+          "lower": 0,
+          "upper": 1.570796
+        },
+        {
+          "name": "door_right_joint",
+          "type": "hinge",
+          "parent": "body",
+          "child": "door_right",
+          "origin": [
+            0.851355,
+            3.36147357,
+            0.489453
+          ],
+          "axis": [
+            0.001878,
+            0.999994,
+            -0.002767
+          ],
+          "lower": 0,
+          "upper": 1.570796
+        },
+        {
+          "name": "drawer_bottom_joint",
+          "type": "slide",
+          "parent": "body",
+          "child": "drawer_bottom",
+          "origin": [
+            0.0031,
+            0.60628757,
+            0.024211
+          ],
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "lower": 0,
+          "upper": 0.946279
+        }
+      ]
+    },
+    "shoe cabinet": {
+      "root": "body",
+      "links": {
+        "body": {
+          "file": "models/shoe-cabinet-urdf/body.glb",
+          "bounds": {
+            "min": [
+              -0.4618130922317505,
+              0,
+              -0.1869184523820877
+            ],
+            "max": [
+              0.4618130922317505,
+              1.2000000476837158,
+              0.17159727215766907
+            ]
+          }
+        },
+        "drawer_top_left": {
+          "file": "models/shoe-cabinet-urdf/drawer_top_left.glb",
+          "bounds": {
+            "min": [
+              -0.19664378464221954,
+              -0.025752192363142967,
+              -0.15332089364528656
+            ],
+            "max": [
+              0.19666573405265808,
+              0.05758114904165268,
+              0.16401343047618866
+            ]
+          }
+        },
+        "drawer_top_right": {
+          "file": "models/shoe-cabinet-urdf/drawer_top_right.glb",
+          "bounds": {
+            "min": [
+              -0.19629289209842682,
+              -0.029006721451878548,
+              -0.1504460722208023
+            ],
+            "max": [
+              0.1970166265964508,
+              0.0621391236782074,
+              0.16760532557964325
+            ]
+          }
+        },
+        "door_upper": {
+          "file": "models/shoe-cabinet-urdf/door_upper.glb",
+          "bounds": {
+            "min": [
+              -0.41245830059051514,
+              -0.0049446565099060535,
+              -0.007691862061619759
+            ],
+            "max": [
+              0.39760300517082214,
+              0.3023470342159271,
+              0.03300045058131218
+            ]
+          }
+        },
+        "door_lower": {
+          "file": "models/shoe-cabinet-urdf/door_lower.glb",
+          "bounds": {
+            "min": [
+              -0.7998043298721313,
+              -0.003378171706572175,
+              -0.0077247004956007
+            ],
+            "max": [
+              0.007652306463569403,
+              0.29870516061782837,
+              0.03260703757405281
+            ]
+          }
+        },
+        "door_bottom": {
+          "file": "models/shoe-cabinet-urdf/door_bottom.glb",
+          "bounds": {
+            "min": [
+              -0.8958261609077454,
+              -0.0018388432217761874,
+              -0.31383025646209717
+            ],
+            "max": [
+              0.00019017966405954212,
+              0.321077823638916,
+              0.016989683732390404
+            ]
+          }
+        }
+      },
+      "joints": [
+        {
+          "name": "drawer_top_left_joint",
+          "type": "slide",
+          "parent": "body",
+          "child": "drawer_top_left",
+          "origin": [
+            -0.207085,
+            1.10231502,
+            0.013627
+          ],
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "lower": 0,
+          "upper": 0.264183
+        },
+        {
+          "name": "drawer_top_right_joint",
+          "type": "slide",
+          "parent": "body",
+          "child": "drawer_top_right",
+          "origin": [
+            0.206712,
+            1.10556902,
+            0.009883
+          ],
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "lower": 0,
+          "upper": 0.265226
+        },
+        {
+          "name": "door_upper_joint",
+          "type": "hinge",
+          "parent": "body",
+          "child": "door_upper",
+          "origin": [
+            0.00873,
+            0.75077802,
+            0.153918
+          ],
+          "axis": [
+            -1,
+            0.00064,
+            0.000381
+          ],
+          "lower": -1.57,
+          "upper": 0
+        },
+        {
+          "name": "door_lower_joint",
+          "type": "hinge",
+          "parent": "body",
+          "child": "door_lower",
+          "origin": [
+            0.396076,
+            0.44452402,
+            0.153934
+          ],
+          "axis": [
+            -0.999998,
+            0.00182,
+            0.000322
+          ],
+          "lower": -1.57,
+          "upper": 0
+        },
+        {
+          "name": "door_bottom_joint",
+          "type": "hinge",
+          "parent": "body",
+          "child": "door_bottom",
+          "origin": [
+            0.447818,
+            0.12006802,
+            0.142036
+          ],
+          "axis": [
+            -0.999991,
+            -0.000158,
+            -0.004313
+          ],
+          "lower": 0,
+          "upper": 1.57
+        }
+      ]
+    }
+  },
   "worldId": "3FO4K4V985GX",
   "thumb": "thumb.jpg",
   "timings": {
     "world": 716,
     "layout": 74,
     "objects": 39,
-    "joints": 0
+    "joints": 245
   },
   "counts": {
     "walls": 26,

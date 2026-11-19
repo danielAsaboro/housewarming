@@ -28,21 +28,47 @@ export async function loadManifest(id: string): Promise<{ manifest: Manifest; ba
 /** glTF (Y-up) → MuJoCo/SpatialLM (Z-up): rotate +90° about X: (x, y, z) → (x, −z, y). */
 const yUpToZUp = (p: number[]): Vec3 => [p[0], -p[2], p[1]];
 
-/** Uniform fit of a model's bounds (glTF frame) into a box: scale k, center c (Z-up, model units), optional 90° swap. */
-function fit(bounds: { min: number[]; max: number[] }, b: Box) {
+/**
+ * Which way a box's furniture faces, as quarter turns r (0..3) of the model about Z.
+ * glTF front (+Z) lands on box −Y after the Y-up→Z-up turn; r rotates it to face away from the
+ * nearest wall (furniture stands against walls) or toward the room's center when free-standing.
+ */
+export function facing(b: Box, l: Layout): number {
+  let best = { d: Infinity, x: 0, y: 0 };
+  for (const w of l.walls) {
+    const ex = w.b[0] - w.a[0], ey = w.b[1] - w.a[1], L2 = ex * ex + ey * ey || 1;
+    const t = Math.max(0, Math.min(1, ((b.center[0] - w.a[0]) * ex + (b.center[1] - w.a[1]) * ey) / L2));
+    const px = w.a[0] + t * ex, py = w.a[1] + t * ey, d = Math.hypot(b.center[0] - px, b.center[1] - py);
+    if (d < best.d) best = { d, x: px, y: py };
+  }
+  let ox = b.center[0] - best.x, oy = b.center[1] - best.y;
+  if (!(best.d < 1.5)) {
+    let cx = 0, cy = 0; for (const w of l.walls) { cx += w.a[0] + w.b[0]; cy += w.a[1] + w.b[1]; }
+    ox = cx / (2 * l.walls.length || 1) - b.center[0]; oy = cy / (2 * l.walls.length || 1) - b.center[1];
+  }
+  const c = Math.cos(b.angleZ), s = Math.sin(b.angleZ);
+  const lx = ox * c + oy * s, ly = -ox * s + oy * c; // outward direction in the box frame
+  const dirs = [[0, -1], [1, 0], [0, 1], [-1, 0]]; // front direction after r quarter turns
+  let r = 0, bd = -Infinity;
+  dirs.forEach(([dx, dy], i) => { const v = dx * lx + dy * ly; if (v > bd) { bd = v; r = i; } });
+  return r;
+}
+
+/** Uniform fit of a model's bounds (glTF frame) into a box, turned r quarter turns: scale k, center c (Z-up, model units). */
+function fit(bounds: { min: number[]; max: number[] }, b: Box, r: number) {
   const a = yUpToZUp(bounds.min), z = yUpToZUp(bounds.max);
   const lo = [Math.min(a[0], z[0]), Math.min(a[1], z[1]), Math.min(a[2], z[2])];
   const hi = [Math.max(a[0], z[0]), Math.max(a[1], z[1]), Math.max(a[2], z[2])];
   const size = [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]];
-  const swap = (size[0] > size[1]) !== (b.size[0] > b.size[1]);
-  const sx = swap ? size[1] : size[0], sy = swap ? size[0] : size[1];
+  const odd = r % 2 === 1;
+  const sx = odd ? size[1] : size[0], sy = odd ? size[0] : size[1];
   const k = Math.min(b.size[0] / (sx || 1), b.size[1] / (sy || 1), b.size[2] / (size[2] || 1));
-  return { k, c: [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2] as Vec3, swap };
+  return { k, c: [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2] as Vec3, r };
 }
 type Fit = ReturnType<typeof fit>;
-const swapZ = (v: Vec3, f: Fit): Vec3 => (f.swap ? [-v[1], v[0], v[2]] : v);
-const toBox = (p: number[], f: Fit): Vec3 => { const q = yUpToZUp(p); return swapZ([(q[0] - f.c[0]) * f.k, (q[1] - f.c[1]) * f.k, (q[2] - f.c[2]) * f.k], f); };
-const dirToBox = (d: number[], f: Fit): Vec3 => swapZ(yUpToZUp(d), f);
+const turn = (v: Vec3, r: number): Vec3 => { let [x, y] = v; for (let i = 0; i < r; i++) [x, y] = [-y, x]; return [x, y, v[2]]; };
+const toBox = (p: number[], f: Fit): Vec3 => { const q = yUpToZUp(p); return turn([(q[0] - f.c[0]) * f.k, (q[1] - f.c[1]) * f.k, (q[2] - f.c[2]) * f.k], f.r); };
+const dirToBox = (d: number[], f: Fit): Vec3 => turn(yUpToZUp(d), f.r);
 
 /** Assembled bounds of an articulated model (root + children at their joint origins), glTF frame. */
 function assembled(art: Articulated) {
@@ -62,7 +88,7 @@ export function articulationAssets(layout: Layout, m: Manifest): Record<string, 
   for (const b of layout.boxes) {
     const art = m.articulated?.[b.cls];
     if (!art?.joints?.length || !art.links[art.root]) continue;
-    const f = fit(assembled(art), b);
+    const f = fit(assembled(art), b, facing(b, layout));
     const joints: Joint[] = [], open: number[] = [];
     for (const j of art.joints) {
       const l = art.links[j.child]; if (!l) continue;
@@ -71,8 +97,15 @@ export function articulationAssets(layout: Layout, m: Manifest): Record<string, 
       const size: Vec3 = [0, 1, 2].map((k) => Math.max(0.02, Math.abs(hi[k] - lo[k]) * 0.94)) as Vec3;
       const s = j.type === 'slide' ? f.k : 1;
       const range: [number, number] = [j.lower * s, j.upper * s];
-      joints.push({ type: j.type, pos: toBox(j.origin, f), axis: dirToBox(j.axis, f), range, part: { center, size } });
-      open.push(Math.abs(range[0]) > Math.abs(range[1]) ? range[0] : range[1]);
+      const axis = dirToBox(j.axis, f);
+      joints.push({ type: j.type, pos: toBox(j.origin, f), axis, range, part: { center, size } });
+      let end = Math.abs(range[0]) > Math.abs(range[1]) ? range[0] : range[1];
+      if (j.type === 'slide') {
+        // drawers: never slide out more than 70% of their own depth along the axis
+        const depth = Math.abs(axis[0]) * size[0] + Math.abs(axis[1]) * size[1] + Math.abs(axis[2]) * size[2];
+        end = Math.sign(end) * Math.min(Math.abs(end), 0.7 * depth);
+      }
+      open.push(end);
     }
     out[b.id] = { joints, open };
   }
@@ -104,12 +137,17 @@ async function glb(url: string, cache: Map<string, ArrayBuffer>) {
 }
 
 /** model (glTF frame) → box frame: Y-up→Z-up, scale k, offset, then optional 90° swap about Z, then position. */
-function placed(model: Object3D, k: number, pos: Vec3, swap: boolean, innerOffset: Vec3 = [0, 0, 0]) {
+function placed(model: Object3D, k: number, pos: Vec3, r: number, innerOffset: Vec3 = [0, 0, 0]) {
   model.rotation.x = Math.PI / 2;
   const inner = new Object3D(); inner.add(model); inner.scale.set(k, k, k); inner.position.set(...innerOffset);
   const outer = new Object3D(); outer.add(inner); outer.position.set(...pos);
-  if (swap) outer.rotation.z = Math.PI / 2;
+  outer.rotation.z = (r * Math.PI) / 2;
   return outer;
+}
+/** world-space bounds of a loaded glTF scene in its own (Y-up) frame */
+function gltfBounds(model: Object3D) {
+  const bb = new Box3().setFromObject(model);
+  return { min: [bb.min.x, bb.min.y, bb.min.z], max: [bb.max.x, bb.max.y, bb.max.z] };
 }
 
 /** Visuals per MuJoCo body: plain Lux3D models fitted to their box; articulated models split per URDF link. */
@@ -120,29 +158,20 @@ export async function loadModels(base: string, m: Manifest, layout: Layout) {
     try {
       const art = m.articulated?.[b.cls];
       if (art?.joints?.length && art.links[art.root]) {
-        const f = fit(assembled(art), b), c = f.c;
-        visuals.push({ body: b.id, obj: placed(await glb(base + art.links[art.root].file, cache), f.k, [0, 0, 0], f.swap, [-c[0] * f.k, -c[1] * f.k, -c[2] * f.k]) });
+        const f = fit(assembled(art), b, facing(b, layout)), c = f.c;
+        visuals.push({ body: b.id, obj: placed(await glb(base + art.links[art.root].file, cache), f.k, [0, 0, 0], f.r, [-c[0] * f.k, -c[1] * f.k, -c[2] * f.k]) });
         let i = 0;
         for (const j of art.joints) {
           const l = art.links[j.child]; if (!l) continue;
-          visuals.push({ body: `${b.id}_part${i++}`, obj: placed(await glb(base + l.file, cache), f.k, toBox(j.origin, f), f.swap) });
+          visuals.push({ body: `${b.id}_part${i++}`, obj: placed(await glb(base + l.file, cache), f.k, toBox(j.origin, f), f.r) });
         }
         continue;
       }
       const file = m.models?.[b.cls];
       if (!file) continue;
       const model = await glb(base + file, cache);
-      model.rotation.x = Math.PI / 2;
-      const inner = new Object3D(); inner.add(model);
-      const bb = new Box3().setFromObject(inner);
-      const size = bb.getSize(), c = bb.getCenter(new Vector3());
-      const swap = (size.x > size.y) !== (b.size[0] > b.size[1]);
-      const sx = swap ? size.y : size.x, sy = swap ? size.x : size.y;
-      const k = Math.min(b.size[0] / (sx || 1), b.size[1] / (sy || 1), b.size[2] / (size.z || 1));
-      inner.scale.set(k, k, k);
-      inner.position.set(-c.x * k, -c.y * k, -c.z * k);
-      const outer = new Object3D(); outer.add(inner);
-      if (swap) outer.rotation.z = Math.PI / 2;
+      const f = fit(gltfBounds(model), b, facing(b, layout)), c = f.c;
+      const outer = placed(model, f.k, [0, 0, 0], f.r, [-c[0] * f.k, -c[1] * f.k, -c[2] * f.k]);
       visuals.push({ body: b.id, obj: outer });
     } catch (e) { console.warn('model', b.cls, e); }
   }

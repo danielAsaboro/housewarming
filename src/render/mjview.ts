@@ -12,13 +12,14 @@ const VISIBLE_GROUPS = new Set([0, 2]);
 
 export class MjView {
   readonly root = new Object3D();
-  private items: { geom: number; mesh: Mesh }[] = [];
-  private attached: { body: number; obj: Object3D }[] = [];
-  private q = new Quaternion();
-
-  /** room geoms (walls, floor, object boxes) — hidden when a real splat stands in for the room */
-  private roomItems: Mesh[] = [];
   readonly models = new Object3D();
+  /** every drawn object follows a MuJoCo geom; `kind` decides its visibility */
+  private items: { geom: number; obj: Object3D; kind: 'robot' | 'plane' | 'wallFill' | 'wallEdge' | 'boxFill' | 'boxEdge' | 'part'; modelled?: boolean }[] = [];
+  private attached: { body: number; obj: Object3D; interactive: boolean }[] = [];
+  private q = new Quaternion();
+  private state = { walls: true, boxes: true, models: true, lines: false, robot: true };
+  /** during the reveal, boxes of modelled objects show briefly before their models replace them */
+  revealBoxes = false;
 
   constructor(private mj: Mj, private model: Mj, private data: Mj, opts: { hideRoom?: boolean } = {}) {
     this.root.add(this.models);
@@ -38,61 +39,70 @@ export class MjView {
       if (rgba[3] < 0.05) continue;
       const room = m.geom_group[g] === 0;
       const isPlane = type === T.mjGEOM_PLANE.value;
+      const isWall = room && m.geom_bodyid[g] === 0;
       const isPart = room && m.body_parentid[m.geom_bodyid[g]] !== 0;
       const color = room ? (isPlane ? BLUEPRINT.ground : isPart ? BLUEPRINT.act : BLUEPRINT.fill) : hex(rgba);
       const mat = new MeshPhongMaterial({ color, opacity: room ? (isPlane ? 1 : 0.22) : rgba[3], shininess: room ? 0 : 20 });
       mat.side = Side.DoubleSide;
       if (room && !isPlane) mat.transparent = true;
       const mesh = new Mesh(geo, mat);
-      if (room && type === T.mjGEOM_BOX.value) mesh.add(boxEdges(size[0], size[1], size[2]));
-      if (isPlane) mesh.add(grid(12, 0.5));
-      this.items.push({ geom: g, mesh });
-      if (m.geom_group[g] === 0) { this.roomItems.push(mesh); if (m.geom_bodyid[g] === 0) this.wallItems.add(mesh); }
       this.root.add(mesh);
+      const kind = !room ? 'robot' : isPlane ? 'plane' : isPart ? 'part' : isWall ? 'wallFill' : 'boxFill';
+      this.items.push({ geom: g, obj: mesh, kind });
+      if (isPlane) mesh.add(grid(12, 0.5));
+      if (room && !isPlane && !isPart && type === T.mjGEOM_BOX.value) {
+        const edges = boxEdges(size[0], size[1], size[2]);
+        this.root.add(edges);
+        this.items.push({ geom: g, obj: edges, kind: isWall ? 'wallEdge' : 'boxEdge' });
+      }
     }
+    if (opts.hideRoom) { this.state.walls = this.state.boxes = this.state.models = false; }
+    this.apply();
     this.sync();
-    if (opts.hideRoom) this.setRoomVisible(false);
   }
 
   setRoomVisible(on: boolean) { this.show({ walls: on, boxes: on, models: on }); }
+  /** Room view: the blueprint's linework over the real scan (no fills, no floor). */
+  linesOnly(on: boolean) { this.state.lines = on; this.apply(); }
+  showRobot(on: boolean) { this.state.robot = on; this.apply(); }
+  /** visibility of walls+floor, object boxes and Lux3D models (build reveal + views) */
+  show(v: { walls?: boolean; boxes?: boolean; models?: boolean }) { Object.assign(this.state, Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined))); this.apply(); }
 
-  showRobot(on: boolean) { for (const it of this.items) if (this.model.geom_group[it.geom] === 2) it.mesh.visible = on; }
-
-  /** Fine-grained visibility for the build reveal: walls+floor, object boxes, Lux3D models. */
-  show(v: { walls?: boolean; boxes?: boolean; models?: boolean }) {
-    for (const m of this.roomItems) {
-      if (this.hidden.has(m) && !(v.boxes && this.revealBoxes)) { if (v.models === false || v.boxes === false) m.visible = false; continue; }
-      const isWall = this.wallItems.has(m);
-      if (isWall && v.walls !== undefined) m.visible = v.walls;
-      if (!isWall && v.boxes !== undefined) m.visible = v.boxes;
+  private apply() {
+    const s = this.state;
+    for (const it of this.items) {
+      const modelled = it.modelled && !this.revealBoxes;
+      it.obj.visible =
+        it.kind === 'robot' ? s.robot :
+        it.kind === 'plane' ? s.walls && !s.lines :
+        it.kind === 'wallFill' ? s.walls && !s.lines :
+        it.kind === 'wallEdge' ? s.walls :
+        it.kind === 'boxFill' ? s.boxes && !s.lines && !modelled :
+        it.kind === 'boxEdge' ? s.boxes && !modelled :
+        /* part */ s.boxes && !s.lines && !modelled;
     }
-    if (v.models !== undefined) { this.models.visible = true; for (const a of this.attached) a.obj.visible = v.models || this.interactive.has(a.obj); }
+    this.models.visible = true;
+    for (const a of this.attached) a.obj.visible = s.models || (a.interactive && s.lines);
   }
-  private wallItems = new Set<Mesh>();
-  private interactive = new Set<Object3D>();
-  /** during the reveal, boxes of modelled objects show briefly before their models replace them */
-  revealBoxes = false;
-  private hidden = new Set<Mesh>();
 
   /** Replace a body's drawn geoms with `obj` (e.g. a Lux3D model) that follows the body's pose. */
   attach(bodyName: string, obj: Object3D) {
-    const body = this.mj.mj_name2id(this.model, this.mj.mjtObj.mjOBJ_BODY.value, bodyName);
+    const m = this.model;
+    const body = this.mj.mj_name2id(m, this.mj.mjtObj.mjOBJ_BODY.value, bodyName);
     if (body < 0) return false;
-    // hide the box geoms of this body and of its articulated parts (bodies rooted at it)
     for (const it of this.items) {
-      const gb = this.model.geom_bodyid[it.geom];
-      if (gb === body || this.model.body_parentid[gb] === body) { it.mesh.visible = false; this.hidden.add(it.mesh); }
+      const gb = m.geom_bodyid[it.geom];
+      if (gb === body || m.body_parentid[gb] === body) it.modelled = true;
     }
     const holder = new Object3D();
     holder.add(obj);
     this.models.add(holder);
-    this.attached.push({ body, obj: holder });
-    // interactive = moves in the sim: has its own joint, or is a part of an articulated object
-    const m = this.model;
-    const moves = m.body_jntnum[body] > 0 || (m.body_parentid[body] !== 0 && m.body_jntnum[m.body_parentid[body]] === 0 && m.body_jntnum[body] > 0);
+    // articulated objects only (a door/drawer part, or the body that owns them); free furniture stays as the real scan
+    const isPart = m.body_parentid[body] !== 0 && m.body_jntnum[body] > 0 && m.jnt_type[m.body_jntadr[body]] !== 0;
     let hasMovingChild = false;
-    for (let b = 0; b < m.nbody; b++) if (m.body_parentid[b] === body && m.body_jntnum[b] > 0) hasMovingChild = true;
-    if (moves || hasMovingChild) this.interactive.add(holder);
+    for (let b = 0; b < m.nbody; b++) if (m.body_parentid[b] === body && m.body_jntnum[b] > 0 && m.jnt_type[m.body_jntadr[b]] !== 0) hasMovingChild = true;
+    this.attached.push({ body, obj: holder, interactive: isPart || hasMovingChild });
+    this.apply();
     this.sync();
     return true;
   }
@@ -104,15 +114,15 @@ export class MjView {
       obj.quaternion = this.q.set(xq[4 * b + 1], xq[4 * b + 2], xq[4 * b + 3], xq[4 * b]);
     }
     const p = this.data.geom_xpos, R = this.data.geom_xmat;
-    for (const { geom: g, mesh } of this.items) {
-      mesh.position.set(p[3 * g], p[3 * g + 1], p[3 * g + 2]);
+    for (const { geom: g, obj } of this.items) {
+      obj.position.set(p[3 * g], p[3 * g + 1], p[3 * g + 2]);
       const [x, y, z, w] = quatFromMat(R, 9 * g);
-      mesh.quaternion = this.q.set(x, y, z, w);
+      obj.quaternion = this.q.set(x, y, z, w);
     }
   }
 
   dispose() {
-    for (const { mesh } of this.items) { this.root.remove(mesh); mesh.freeAllGpuResourceOwned(); }
+    for (const { obj } of this.items) { this.root.remove(obj); (obj as any).freeAllGpuResourceOwned?.(); }
     this.items = [];
   }
 }

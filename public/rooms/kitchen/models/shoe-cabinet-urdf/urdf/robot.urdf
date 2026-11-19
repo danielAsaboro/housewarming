@@ -1,0 +1,104 @@
+<?xml version="1.0"?>
+<robot name="robot">
+  <link name="body">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/body.glb" />
+      </geometry>
+    </visual>
+    <inertial>
+      <mass value="1.0" />
+      <inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+  </link>
+  <link name="drawer_top_left">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/drawer_top_left.glb" />
+      </geometry>
+    </visual>
+    <inertial>
+      <mass value="1.0" />
+      <inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+  </link>
+  <link name="drawer_top_right">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/drawer_top_right.glb" />
+      </geometry>
+    </visual>
+    <inertial>
+      <mass value="1.0" />
+      <inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+  </link>
+  <link name="door_upper">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/door_upper.glb" />
+      </geometry>
+    </visual>
+    <inertial>
+      <mass value="1.0" />
+      <inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+  </link>
+  <link name="door_lower">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/door_lower.glb" />
+      </geometry>
+    </visual>
+    <inertial>
+      <mass value="1.0" />
+      <inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+  </link>
+  <link name="door_bottom">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/door_bottom.glb" />
+      </geometry>
+    </visual>
+    <inertial>
+      <mass value="1.0" />
+      <inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+  </link>
+  <joint name="drawer_top_left_joint" type="prismatic">
+    <parent link="body" />
+    <child link="drawer_top_left" />
+    <origin rpy="0 0 0" xyz="-0.20708500 1.10231502 0.01362700" />
+    <axis xyz="0.00000000 0.00000000 1.00000000" />
+    <limit lower="0.000000" upper="0.264183" effort="10" velocity="1" />
+  </joint>
+  <joint name="drawer_top_right_joint" type="prismatic">
+    <parent link="body" />
+    <child link="drawer_top_right" />
+    <origin rpy="0 0 0" xyz="0.20671200 1.10556902 0.00988300" />
+    <axis xyz="0.00000000 0.00000000 1.00000000" />
+    <limit lower="0.000000" upper="0.265226" effort="10" velocity="1" />
+  </joint>
+  <joint name="door_upper_joint" type="revolute">
+    <parent link="body" />
+    <child link="door_upper" />
+    <origin rpy="0 0 0" xyz="0.00873000 0.75077802 0.15391800" />
+    <axis xyz="-1.00000000 0.00064000 0.00038100" />
+    <limit lower="-1.570000" upper="0.000000" effort="10" velocity="1" />
+  </joint>
+  <joint name="door_lower_joint" type="revolute">
+    <parent link="body" />
+    <child link="door_lower" />
+    <origin rpy="0 0 0" xyz="0.39607600 0.44452402 0.15393400" />
+    <axis xyz="-0.99999800 0.00182000 0.00032200" />
+    <limit lower="-1.570000" upper="0.000000" effort="10" velocity="1" />
+  </joint>
+  <joint name="door_bottom_joint" type="revolute">
+    <parent link="body" />
+    <child link="door_bottom" />
+    <origin rpy="0 0 0" xyz="0.44781800 0.12006802 0.14203600" />
+    <axis xyz="-0.99999100 -0.00015800 -0.00431300" />
+    <limit lower="0.000000" upper="1.570000" effort="10" velocity="1" />
+  </joint>
+</robot>

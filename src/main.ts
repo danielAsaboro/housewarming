@@ -72,10 +72,15 @@ async function main() {
 
   // articulated objects: F toggles the nearest one within reach
   const doors = layout.boxes.filter((b) => objects[b.id]?.joints?.length).map((b) => ({ b, open: false }));
-  const toggleNearest = () => {
+  const REACH = 2.2;
+  const nearestDoor = () => {
     const { pos } = robot.pose();
-    let best: (typeof doors)[number] | undefined, bd = 2.0;
-    for (const d of doors) { const dd = Math.hypot(d.b.center[0] - pos[0], d.b.center[1] - pos[1]); if (dd < bd) { bd = dd; best = d; } }
+    let best: (typeof doors)[number] | undefined, bd = REACH;
+    for (const d of doors) { const dd = Math.hypot(d.b.center[0] - pos[0], d.b.center[1] - pos[1]) - Math.max(d.b.size[0], d.b.size[1]) / 2; if (dd < bd) { bd = dd; best = d; } }
+    return best;
+  };
+  const toggleNearest = () => {
+    const best = nearestDoor();
     if (!best) return;
     best.open = !best.open;
     objects[best.b.id].joints!.forEach((jt, i) => {
@@ -86,7 +91,9 @@ async function main() {
 
   const setView = (sim: boolean) => {
     if (!splat) return;
-    simView = sim; splat.visible = !sim; view.setRoomVisible(sim);
+    simView = sim; splat.visible = !sim;
+    // Room: the real scan with the blueprint's linework traced over it; Blueprint: the full simulation
+    view.show({ walls: true, boxes: true, models: sim }); view.linesOnly(!sim);
     document.querySelectorAll<HTMLButtonElement>('#viewseg button').forEach((b) => b.setAttribute('aria-pressed', String((b.dataset.view === 'blueprint') === sim)));
   };
   hud(manifest, layout, !!splat, doors.length > 0);
@@ -137,6 +144,7 @@ async function main() {
   let camHeading = 2 * Math.atan2(p0.quat[3], p0.quat[0]);
   const camTarget = [p0.pos[0], p0.pos[1], p0.pos[2]];
   const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+  let camDist = dist;
   // ---- build reveal: room → walls → objects → Lux3D models → robot
   const REVEAL = { walls: 1.4, boxes: 2.8, models: 4.2, drop: 5.4 };
   const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
@@ -164,7 +172,8 @@ async function main() {
     if (s === phase) return;
     phase = s;
     view.revealBoxes = s === 2;
-    if (s === 0) { view.show({ walls: !splat, boxes: false, models: false }); view.models.visible = false; view.showRobot(false); paused = true; }
+    view.linesOnly(false);
+    if (s === 0) { view.show({ walls: !splat, boxes: false, models: false }); view.showRobot(false); paused = true; }
     if (s === 1) view.show({ walls: true });
     if (s === 2) view.show({ boxes: true });
     if (s === 3) view.show({ boxes: false, models: true });
@@ -177,8 +186,15 @@ async function main() {
   const reveal = () => { revealing = true; revealT0 = performance.now(); phase = -1; };
   reveal();
 
+  const openBtn = document.getElementById('open') as HTMLButtonElement;
+  let frameN = 0;
   const frame = () => {
     requestAnimationFrame(frame);
+    if (++frameN % 10 === 0 && doors.length) {
+      const d = nearestDoor();
+      openBtn.disabled = !d;
+      openBtn.firstChild!.textContent = d?.open ? 'Close' : 'Open';
+    }
     view.sync();
     const { pos, quat } = robot.pose();
     // ease the camera after the robot: gait bob and turns stay smooth on screen
@@ -198,19 +214,24 @@ async function main() {
       for (let i = 0; i < 2; i++) camTarget[i] = lerp(roomCenter[i], robot.pose().pos[i], k);
       if (t > REVEAL.drop + 1.7) revealing = false;
     }
+    // never put the camera behind a wall or inside furniture: pull it in to the first obstacle
+    const reach = rayClear(camTarget[0], camTarget[1], a, layout) - 0.25;
+    camDist += (Math.max(0.6, Math.min(d, reach / Math.max(0.2, Math.cos(pt)))) - camDist) * (revealing ? 1 : 0.2);
+    d = camDist;
     camera.position.set(camTarget[0] + d * Math.cos(pt) * Math.cos(a), camTarget[1] + d * Math.cos(pt) * Math.sin(a), camTarget[2] + d * Math.sin(pt));
     camera.lookAt(new Vector3(camTarget[0], camTarget[1], camTarget[2]));
     viewer.render();
   };
   requestAnimationFrame(frame);
   document.body.classList.add('ready');
-  Object.assign(window, { __hw: { mj, model, data, robot, layout, viewer, view, manifest, objects, toggleNearest, sceneXml } });
+  Object.assign(window, { __hw: { mj, model, data, robot, layout, viewer, view, manifest, objects, toggleNearest, sceneXml, cam: (o: number, p: number, d: number) => { orbit = o; pitch = p; dist = d; }, setView } });
 }
 
 function hud(m: Awaited<ReturnType<typeof loadManifest>>['manifest'] & { timings?: Record<string, number>; counts?: Record<string, number> }, l: Layout, hasSplat: boolean, hasDoors: boolean) {
   document.getElementById('room-name')!.textContent = m.id;
   (document.getElementById('viewseg') as HTMLElement).hidden = !hasSplat;
-  (document.getElementById('open') as HTMLButtonElement).disabled = !hasDoors;
+  (document.getElementById('open') as HTMLButtonElement).disabled = true;
+  (document.getElementById('open') as HTMLButtonElement).hidden = !hasDoors;
   const t = m.timings, fmt = (s?: number) => (s ? (s >= 90 ? `${Math.round(s / 60)}m` : `${s}s`) : '—');
   const stages: [string, string][] = [
     [m.source === 'video' ? 'Scan' : 'World', fmt(t?.world)],
@@ -222,6 +243,25 @@ function hud(m: Awaited<ReturnType<typeof loadManifest>>['manifest'] & { timings
   const thumb = (m as { thumb?: string }).thumb;
   el.innerHTML = (thumb ? `<img src="/rooms/${m.id}/${thumb}" alt="">` : '') + stages.map(([a, b]) => `<div><i>${a}</i><em>${b}</em></div>`).join('');
   el.hidden = false;
+}
+
+/** Distance from (x, y) along heading `ang` to the first wall or tall object (2D). */
+function rayClear(x: number, y: number, ang: number, l: Layout) {
+  const dx = Math.cos(ang), dy = Math.sin(ang); let best = 12;
+  const seg = (ax: number, ay: number, bx: number, by: number) => {
+    const ex = bx - ax, ey = by - ay, den = dx * ey - dy * ex;
+    if (Math.abs(den) < 1e-9) return;
+    const qx = ax - x, qy = ay - y, t = (qx * ey - qy * ex) / den, u = (qx * dy - qy * dx) / den;
+    if (t > 0 && u >= 0 && u <= 1) best = Math.min(best, t);
+  };
+  for (const w of l.walls) seg(w.a[0], w.a[1], w.b[0], w.b[1]);
+  for (const b of l.boxes) {
+    if (b.size[2] < 1.0) continue; // the camera rides above low furniture
+    const c = Math.cos(b.angleZ), s = Math.sin(b.angleZ), hx = b.size[0] / 2, hy = b.size[1] / 2;
+    const P = [[-hx, -hy], [hx, -hy], [hx, hy], [-hx, hy]].map(([u, v]) => [b.center[0] + c * u - s * v, b.center[1] + s * u + c * v]);
+    for (let i = 0; i < 4; i++) seg(P[i][0], P[i][1], P[(i + 1) % 4][0], P[(i + 1) % 4][1]);
+  }
+  return best;
 }
 
 /** A free spot near the room's center. */
