@@ -199,6 +199,18 @@ async function unpackUrdf(cls, url) {
 const vol = (l, c) => Math.max(...l.boxes.filter((b) => b.cls === c).map((b) => b.size[0] * b.size[1] * b.size[2]));
 const slug = (s) => s.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
 
+/** A small picture of the input for the app: a video frame, the photo, or the generated panorama. */
+async function thumb() {
+  const out = path.join(DIR, 'thumb.jpg');
+  try {
+    if (args.video) execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-ss', '2', '-i', path.resolve(args.video), '-frames:v', '1', '-vf', 'scale=480:-2', out]);
+    else if (args.image) execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', path.resolve(args.image), '-vf', 'scale=480:-2', out]);
+    else if (state.splat_files?.pano) execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', path.join(DIR, state.splat_files.pano), '-vf', 'scale=640:-2', out]);
+    else return undefined;
+    return 'thumb.jpg';
+  } catch { return undefined; }
+}
+
 // ---------- run
 const only = args.only?.split(',');
 const run = (n) => !only || only.includes(n);
@@ -219,6 +231,7 @@ const manifest = {
   models: objects.models,
   articulated: objects.articulated,
   worldId: state.world_op?.worldId,
+  thumb: await thumb(),
   // seconds per stage, for the build strip in the app
   timings: {
     world: (state.upload_src_s ?? 0) + (state.world_op_s ?? 0) + (state.world_detail_s ?? 0),

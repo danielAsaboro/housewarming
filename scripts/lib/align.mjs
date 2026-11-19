@@ -40,7 +40,7 @@ export function alignRoom(xyz, opts = {}) {
     const t = (p[3 * i + 2] - z0) / (z1 - z0 || 1);
     if (t > 0.35 && t < 0.85) band.push(p[3 * i], p[3 * i + 1]);
   }
-  let best = { th: 0, score: -1 };
+  const scores = [];
   for (let deg = 0; deg < 90; deg += 1) {
     const th = (deg * Math.PI) / 180, c = Math.cos(th), s = Math.sin(th);
     const hx = new Map(), hy = new Map(), bin = 0.05;
@@ -50,8 +50,13 @@ export function alignRoom(xyz, opts = {}) {
       hx.set(kx, (hx.get(kx) ?? 0) + 1); hy.set(ky, (hy.get(ky) ?? 0) + 1);
     }
     let score = 0; for (const v of hx.values()) score += v * v; for (const v of hy.values()) score += v * v;
-    if (score > best.score) best = { th, score };
+    scores.push({ deg, th, score });
   }
+  // prefer the angle closest to the source axes among near-ties (sources are usually already square)
+  const top = Math.max(...scores.map((x) => x.score));
+  const near = scores.filter((x) => x.score >= 0.98 * top);
+  const best = near.reduce((b, x) => (Math.min(x.deg, 90 - x.deg) < Math.min(b.deg, 90 - b.deg) ? x : b));
+  if (best.deg > 45 && 90 - best.deg <= 1) { best.deg = 0; best.th = 0; }
   const c = Math.cos(best.th), s = Math.sin(best.th);
   const Rz = [c, -s, 0, s, c, 0, 0, 0, 1];
 

@@ -82,7 +82,7 @@ export function articulationAssets(layout: Layout, m: Manifest): Record<string, 
 export async function loadSplat(base: string, m: Manifest): Promise<Object3D | null> {
   if (!m.splat) return null;
   const type = m.splatFormat === 'ply' ? SplatLoader.SplatFileType.PLY : SplatLoader.SplatFileType.SPZ;
-  const data = await SplatLoader.parseSplatData(type, base + m.splat, SplatLoader.SplatPackType.Compressed);
+  const data = await SplatLoader.parseSplatData(type, new URL(base + m.splat, location.href).href, SplatLoader.SplatPackType.Compressed);
   const splat = await SplatUtils.createSplat(data);
   const holder = new Object3D();
   holder.add(splat as unknown as Object3D);

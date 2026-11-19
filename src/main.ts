@@ -131,14 +131,22 @@ async function main() {
   };
   physics();
 
+  const p0 = robot.pose();
+  let camHeading = 2 * Math.atan2(p0.quat[3], p0.quat[0]);
+  const camTarget = [p0.pos[0], p0.pos[1], p0.pos[2]];
+  const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
   const frame = () => {
     requestAnimationFrame(frame);
     view.sync();
     const { pos, quat } = robot.pose();
+    // ease the camera after the robot: gait bob and turns stay smooth on screen
     const heading = 2 * Math.atan2(quat[3], quat[0]);
-    const a = heading + orbit;
-    camera.position.set(pos[0] + dist * Math.cos(pitch) * Math.cos(a), pos[1] + dist * Math.cos(pitch) * Math.sin(a), pos[2] + dist * Math.sin(pitch));
-    camera.lookAt(new Vector3(pos[0], pos[1], pos[2]));
+    camHeading += wrap(heading - camHeading) * 0.06;
+    for (let i = 0; i < 3; i++) camTarget[i] += (pos[i] - camTarget[i]) * 0.12;
+    camTarget[2] = camTarget[2] * 0.9 + (pos[2] + 0.05) * 0.1;
+    const a = camHeading + orbit;
+    camera.position.set(camTarget[0] + dist * Math.cos(pitch) * Math.cos(a), camTarget[1] + dist * Math.cos(pitch) * Math.sin(a), camTarget[2] + dist * Math.sin(pitch));
+    camera.lookAt(new Vector3(camTarget[0], camTarget[1], camTarget[2]));
     viewer.render();
   };
   requestAnimationFrame(frame);
@@ -158,7 +166,8 @@ function hud(m: Awaited<ReturnType<typeof loadManifest>>['manifest'] & { timings
     ['Joints', `${Object.values(m.articulated ?? {}).reduce((n, a) => n + (a.joints?.length ?? 0), 0)}`],
   ];
   const el = document.getElementById('build')!;
-  el.innerHTML = stages.map(([a, b]) => `<div><i>${a}</i><em>${b}</em></div>`).join('');
+  const thumb = (m as { thumb?: string }).thumb;
+  el.innerHTML = (thumb ? `<img src="/rooms/${m.id}/${thumb}" alt="">` : '') + stages.map(([a, b]) => `<div><i>${a}</i><em>${b}</em></div>`).join('');
   el.hidden = false;
 }
 
